@@ -1,0 +1,30 @@
+# nova.toml — nova-polaris: Polaris ⭐, серверный веб-фреймворк Nova.
+#
+# Слои 2-3 плана 222 (hyper/axum-модель): Router/handlers, extractors,
+# IntoResponse, middleware + батарейки (cors/static/compress/log/ratelimit),
+# auth, websocket, serve. Ядро протокола (типы/клиент/транспорт) живёт в
+# пакете `http` (репа nova-http) — единственная содержательная зависимость;
+# пользователю достаточно `import polaris.{Router, get, post}` (http-типы
+# приходят транзитивно), кому нужен только клиент — `import http`.
+#
+# Извлечение из nova-http (server/servernet/serve/ws/static/middleware/…)
+# — план 222, «РЕШЕНИЕ ВЛАДЕЛЬЦА 2026-07-24: раскол УТВЕРЖДЁН — ДВЕ РЕПЫ».
+# Layout: src/ canon (Plan 195), `module polaris` — root peers; подпапки —
+# folder-module peers (`module polaris.extract`, `module polaris.net`, …),
+# D78: module-путь НЕ включает `src`.
+
+[package]
+name = "polaris"
+version = "0.1.0"
+description = "Polaris — web framework for Nova (Router, extractors, IntoResponse, middleware, auth, websocket) atop the `http` core"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/nv-lang/nova-polaris"
+
+[lib]
+src = "src"
+
+# D420: релизная форма — git+semver (теги vX.Y.Z, caret); nova.lock фиксирует
+# тег+commit. Локальная разработка — ТОЛЬКО через некоммитимый nova.local.toml
+# (закоммиченный [replace] ломает чистый клон, E_REPLACE_IN_MANIFEST).
+[dependencies]
+http = { git = "https://github.com/nv-lang/nova-http", version = "0.1" }
