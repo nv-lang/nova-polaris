@@ -1,0 +1,625 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Plan 229 — living source of every code sample quoted in docs/*.md
+// (nova-polaris user documentation, EN+RU). Each `test` block below is
+// copied VERBATIM into its matching doc file — this file compiling and
+// passing IS the doc's correctness gate (a stale/wrong doc example fails
+// here first). Sections are ordered to match docs/README.md's own file
+// list. Serve/socket examples that need a REAL listener (can't run inside
+// `test { }`) are plain top-level functions instead — they still have to
+// COMPILE (proving the signatures/types are real), they are just never
+// called; each is marked "compile-only" in its doc-comment and the doc
+// prose links back here.
+//
+// Cross-module note: this file is `module polaris.doc_samples_test` — a
+// module OUTSIDE `polaris`/`polaris.*`, exactly like a real application
+// would be. Every import below is therefore the SAME package-qualified
+// path (`polaris.{...}`, `polaris.ws.{...}`, `polaris.middleware.cors.{...}`,
+// …) an external consumer of this crate would write — nothing here relies
+// on same-module (folder-peer) bare access.
+
+module polaris.doc_samples_test
+
+import polaris.{Router, get, post, ServerRequest, ServerResponse, Handler, Middleware, middleware}
+import polaris.{Json, PathParam, Query, Bytes, Text, Headers, Multipart}
+import polaris.{Bearer, BasicAuth, JwtAuth, JwtClaims, CookieJar}
+import polaris.{MemorySessionStore, SessionConfig, session_layer, require_jwt}
+import polaris.{BackgroundTasks, StreamBody, sse_event, WebSocketUpgrade}
+import polaris.{serve_once, route_once}
+import polaris.ws.{WebSocket, Message}
+import polaris.net.{ServerPolicy}
+import polaris.serve.{serve_router, handle_connection_router}
+import polaris.static.{Static, static_handler, serve_path}
+import polaris.middleware.cors.{Cors, cors}
+import polaris.middleware.compress.{Compression, compression}
+import polaris.middleware.log.{Log, logger}
+import polaris.middleware.ratelimit.{RateLimit, ratelimit}
+import http.{StatusCode, HttpError, SetCookie}
+import std.net.{TcpListener, TcpStream, SocketAddr}
+import std.encoding.serde.{Serialize, Deserialize}
+import std.testing.handlers as th
+
+// ── shared test helpers (mirrors router_test.nv/mux_test.nv's own shape —
+// this module can't see those module-private peers, so its own copies) ────
+
+fn get_req(path str) -> []u8 => "GET ${path} HTTP/1.1\r\nHost: x\r\n\r\n".bytes()
+fn post_req(path str, body str) -> []u8 =>
+    "POST ${path} HTTP/1.1\r\nHost: x\r\nContent-Length: ${body.byte_len()}\r\n\r\n${body}".bytes()
+fn get_req_h(path str, hname str, hval str) -> []u8 =>
+    "GET ${path} HTTP/1.1\r\nHost: x\r\n${hname}: ${hval}\r\n\r\n".bytes()
+
+fn wire_str(wire []u8) -> str => unsafe { wire.to_str_unchecked() }
+fn status_line(wire []u8) -> str {
+    ro s = wire_str(wire)
+    match s.find("\r\n") { Some(i) => s[0..i], None => s }
+}
+fn hdr(resp ServerResponse, name str) -> str {
+    match resp.headers.get(name) {
+        Some(hv) => match hv.to_str() { Ok(s) => s, Err(_) => "" }
+        None     => ""
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// overview.md
+// ═══════════════════════════════════════════════════════════════════════
+
+test "overview: minimal handler, routed and served without a socket" {
+    mut app = Router.new()
+    app.get("/hello/{name}", fn(req ServerRequest) -> ServerResponse {
+        ro name = req.param("name") ?? "world"
+        ServerResponse.text(StatusCode.OK, "hello, ${name}")
+    })!!
+
+    ro wire = serve_once(app, get_req("/hello/nova"))
+    assert(status_line(wire) == "HTTP/1.1 200 OK")
+    assert(wire_str(wire).contains("hello, nova"))
+}
+
+/// compile-only: the same router, bound to a real socket and served with
+/// timeouts/admission-control/keep-alive (`ServerPolicy` — see serving.md).
+/// Never called from a test (needs a live listener); compiling this
+/// function is the proof the signatures below are real.
+fn overview_main() Net Time Detach -> () {
+    mut app = Router.new()
+    app.get("/hello/{name}", fn(req ServerRequest) -> ServerResponse {
+        ro name = req.param("name") ?? "world"
+        ServerResponse.text(StatusCode.OK, "hello, ${name}")
+    })!!
+
+    consume listener = TcpListener.bind(SocketAddr.from_str("0.0.0.0:8080")!!)!!
+    serve_router(listener, app, ServerPolicy.new())
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// routing.md
+// ═══════════════════════════════════════════════════════════════════════
+
+test "routing: statement-form registration with !!" {
+    mut r = Router.new()
+    r.get("/health", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, "ok"))!!
+    ro wire = serve_once(r, get_req("/health"))
+    assert(status_line(wire) == "HTTP/1.1 200 OK")
+}
+
+fn chained_routes() -> Result[Router, HttpError] {
+    mut r = Router.new()
+    r.get("/a", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, "a"))?
+     .post("/b", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, "b"))
+}
+
+test "routing: ?-chain inside a Result-returning fn, and !!-chain on an rvalue" {
+    ro r1 = chained_routes()!!
+    assert(status_line(serve_once(r1, get_req("/a"))) == "HTTP/1.1 200 OK")
+
+    ro r2 = Router.new()
+        .get("/x", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, "x"))!!
+        .post("/y", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, "y"))!!
+    assert(status_line(serve_once(r2, post_req("/y", ""))) == "HTTP/1.1 200 OK")
+}
+
+test "routing: {name} path params and {*rest} catch-all" {
+    mut r = Router.new()
+    r.get("/users/{id}", fn(req ServerRequest) -> ServerResponse {
+        ro id = req.param("id") ?? "?"
+        ServerResponse.text(StatusCode.OK, "id=${id}")
+    })!!
+    r.get("/files/{*path}", fn(req ServerRequest) -> ServerResponse {
+        ro path = req.param("path") ?? "?"
+        ServerResponse.text(StatusCode.OK, "path=${path}")
+    })!!
+
+    assert(wire_str(serve_once(r, get_req("/users/42"))).contains("id=42"))
+    assert(wire_str(serve_once(r, get_req("/files/a/b/c"))).contains("path=a/b/c"))
+}
+
+test "routing: MethodRouter composes get(h).post(h2) on one path, 405+Allow otherwise" {
+    mut r = Router.new()
+    r.route("/widgets",
+        get(fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, "list"))
+            .post(fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.CREATED, "made")))!!
+
+    assert(status_line(serve_once(r, get_req("/widgets"))) == "HTTP/1.1 200 OK")
+    assert(status_line(serve_once(r, post_req("/widgets", ""))) == "HTTP/1.1 201 Created")
+    ro wire405 = serve_once(r, "DELETE /widgets HTTP/1.1\r\nHost: x\r\n\r\n".bytes())
+    assert(status_line(wire405) == "HTTP/1.1 405 Method Not Allowed")
+    assert(wire_str(wire405).contains("allow: GET, POST"))
+}
+
+test "routing: nest merges a sub-router's routes under a prefix" {
+    mut api = Router.new()
+    api.get("/widgets/{id}", fn(req ServerRequest) -> ServerResponse {
+        ro id = req.param("id") ?? "?"
+        ServerResponse.text(StatusCode.OK, "widget ${id}")
+    })!!
+
+    mut r = Router.new()
+    r.nest("/api", api)!!
+    assert(wire_str(serve_once(r, get_req("/api/widgets/9"))).contains("widget 9"))
+}
+
+test "routing: Router.fallback (global 404) vs MethodRouter.fallback (per-route 405)" {
+    mut r = Router.new()
+    r.fallback(fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.NOT_FOUND, "custom 404"))
+    mut mr = get(fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, "ok"))
+    mr.fallback(fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.METHOD_NOT_ALLOWED, "custom 405"))
+    r.route("/guarded", mr)!!
+
+    assert(wire_str(serve_once(r, get_req("/missing"))).contains("custom 404"))
+    assert(wire_str(serve_once(r, post_req("/guarded", ""))).contains("custom 405"))
+}
+
+test "routing: a duplicate/conflicting route registration is a typed Err, not a panic" {
+    mut r = Router.new()
+    r.get("/dup", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, "first"))!!
+    ro second = r.route("/dup", get(fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, "second")))
+    assert(match second { Err(_) => true, Ok(_) => false })
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// handlers-response.md
+// ═══════════════════════════════════════════════════════════════════════
+
+test "handlers-response: ServerRequest accessors — param/query_param/header/body_bytes" {
+    mut r = Router.new()
+    r.post("/echo/{tag}", fn(req ServerRequest) -> ServerResponse {
+        ro tag = req.param("tag") ?? "?"
+        ro q = req.query_param("q") ?? "?"
+        ro ua = req.header("user-agent") ?? "?"
+        ro body = unsafe { req.body_bytes().to_str_unchecked() }
+        ServerResponse.text(StatusCode.OK, "tag=${tag} q=${q} ua=${ua} body=${body}")
+    })!!
+    ro raw = "POST /echo/x?q=hi HTTP/1.1\r\nHost: n\r\nUser-Agent: t\r\nContent-Length: 3\r\n\r\nabc".bytes()
+    ro wire = serve_once(r, raw)
+    assert(wire_str(wire).contains("tag=x q=hi ua=t body=abc"))
+}
+
+test "handlers-response: ServerResponse constructors — text/html/bytes/empty/redirect" {
+    ro t = ServerResponse.text(StatusCode.OK, "hi")
+    assert(hdr(t, "Content-Type").contains("text/plain"))
+    ro h = ServerResponse.html(StatusCode.OK, "<b>hi</b>")
+    assert(hdr(h, "Content-Type").contains("text/html"))
+    ro b = ServerResponse.bytes(StatusCode.OK, "application/octet-stream", [1, 2, 3])
+    assert(b.body.len() == 3)
+    ro e = ServerResponse.empty(StatusCode.NO_CONTENT)
+    assert(e.status_code() == 204)
+    ro r = ServerResponse.redirect(StatusCode.FOUND, "/elsewhere")
+    assert(hdr(r, "Location") == "/elsewhere")
+}
+
+// `IntoResponse` collapses a handler's return value to a `ServerResponse`:
+// `str` -> 200 text/plain, `StatusCode` -> bodyless, `Json[T]`/any
+// `T Serialize` -> 200 application/json, `HttpError` -> mapped status +
+// structured body, and the blanket `Result[R IntoResponse, E IntoResponse]`
+// gives ?-ergonomics: a plain helper returning `Result[T, HttpError]` gets
+// a free `.into_response()`.
+fn find_widget(id str) -> Result[str, HttpError] {
+    if id == "1" { Ok("widget-one") } else { Err(HttpError.new(Status(StatusCode.NOT_FOUND))) }
+}
+
+test "handlers-response: IntoResponse — str/StatusCode/Result[R,E] blanket" {
+    assert("hi".into_response().status_code() == 200)
+    assert(StatusCode.NOT_FOUND.into_response().status_code() == 404)
+    assert(find_widget("1").into_response().status_code() == 200)
+    assert(find_widget("nope").into_response().status_code() == 404)
+}
+
+#impl(Serialize + Deserialize)
+type WidgetId value { ro id int }
+
+#impl(Serialize + Deserialize)
+type WidgetQuery value { ro q str }
+
+#impl(Serialize + Deserialize)
+type Widget value { ro name str }
+
+// Today's canon for typed extraction: call `T.from_request(req)` manually
+// inside a plain `Handler` (the arity-overload sugar that would let a
+// handler take `PathParam[T]`/`Query[T]`/`Json[T]` as bare fn PARAMETERS is
+// NOT implemented — see roadmap.md).
+test "handlers-response: typed extractors — PathParam/Query/Json via FromRequest" {
+    mut r = Router.new()
+    r.post("/widgets/{id}", fn(req ServerRequest) -> ServerResponse {
+        match PathParam[WidgetId].from_request(req) {
+            Ok(p) => match Query[WidgetQuery].from_request(req) {
+                Ok(q) => match Json[Widget].from_request(req) {
+                    Ok(j)  => ServerResponse.text(StatusCode.OK, "id=${p.data().id} q=${q.data().q} name=${j.data().name}")
+                    Err(e) => e.into_response()
+                }
+                Err(e) => e.into_response()
+            }
+            Err(e) => e.into_response()
+        }
+    })!!
+    ro raw = "POST /widgets/7?q=hi HTTP/1.1\r\nHost: n\r\nContent-Type: application/json\r\nContent-Length: 15\r\n\r\n{\"name\":\"nut\"}".bytes()
+    ro wire = serve_once(r, raw)
+    assert(wire_str(wire).contains("id=7 q=hi name=nut"))
+}
+
+test "handlers-response: Bytes/Text/Headers extractors never fail on well-formed input" {
+    mut r = Router.new()
+    r.post("/raw", fn(req ServerRequest) -> ServerResponse {
+        ro n = Bytes.from_request(req)!!.data().len()
+        ro t = Text.from_request(req)!!.data()
+        ro has_host = Headers.from_request(req)!!.data().get("Host").is_some()
+        ServerResponse.text(StatusCode.OK, "n=${n} t=${t} host=${has_host}")
+    })!!
+    ro wire = serve_once(r, post_req("/raw", "hi"))
+    assert(wire_str(wire).contains("n=2 t=hi host=true"))
+}
+
+test "handlers-response: StatusCode — named constants, validated new(), unsafe new_unchecked" {
+    assert(StatusCode.OK.code() == 200)
+    assert(StatusCode.NOT_FOUND.code() == 404)
+    assert(match StatusCode.new(999) { Err(_) => true, Ok(_) => false })
+    ro weird = unsafe { StatusCode.new_unchecked(799) }
+    assert(weird.code() == 799)
+}
+
+test "handlers-response: multipart/form-data — fields and file uploads" {
+    mut r = Router.new()
+    r.post("/upload", fn(req ServerRequest) -> ServerResponse {
+        match Multipart.from_request(req) {
+            Ok(mp) => {
+                ro name = match mp.field("name") { Some(p) => p.text() ?? "?", None => "?" }
+                ro has_file = mp.file("avatar").is_some()
+                ServerResponse.text(StatusCode.OK, "name=${name} has_file=${has_file}")
+            }
+            Err(e) => e.into_response()
+        }
+    })!!
+    ro boundary = "X-boundary"
+    ro body = "--${boundary}\r\nContent-Disposition: form-data; name=\"name\"\r\n\r\nnova\r\n--${boundary}\r\nContent-Disposition: form-data; name=\"avatar\"; filename=\"a.png\"\r\nContent-Type: image/png\r\n\r\nBINARY\r\n--${boundary}--\r\n"
+    ro raw = "POST /upload HTTP/1.1\r\nHost: n\r\nContent-Type: multipart/form-data; boundary=${boundary}\r\nContent-Length: ${body.byte_len()}\r\n\r\n${body}".bytes()
+    ro wire = serve_once(r, raw)
+    assert(wire_str(wire).contains("name=nova has_file=true"))
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// middleware.md
+// ═══════════════════════════════════════════════════════════════════════
+
+fn add_tag(tag str, next Handler, req ServerRequest) -> ServerResponse {
+    mut resp = next(req)
+    ro prev = hdr(resp, "x-order")
+    // Prepend on the way back out: the OUTERMOST layer's post-work runs
+    // LAST (it called `next` first, so it unwinds last), so prepending
+    // makes left-to-right in the final header match request-time order.
+    resp.header("x-order", if prev == "" { tag } else { "${tag},${prev}" })
+    resp
+}
+
+fn tag_layer(tag str) -> Middleware {
+    ro t = tag
+    middleware(fn(req ServerRequest, next Handler) -> ServerResponse => add_tag(t, next, req))
+}
+
+test "middleware: canon middleware(fn(req, next)) form; first .layer() call is outermost" {
+    mut r = Router.new()
+    r.layer(tag_layer("A"))
+    r.layer(tag_layer("B"))
+    r.get("/x", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, "base"))!!
+    ro wire = serve_once(r, get_req("/x"))
+    // request order A -> B -> handler; unwinding tags the header A,B
+    assert(wire_str(wire).contains("x-order: A,B"))
+}
+
+test "middleware: @then composes two middlewares into one (same order as two .layer() calls)" {
+    mut r = Router.new()
+    r.layer(tag_layer("A").then(tag_layer("B")))
+    r.get("/x", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, "base"))!!
+    ro wire = serve_once(r, get_req("/x"))
+    assert(wire_str(wire).contains("x-order: A,B"))
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// batteries.md
+// ═══════════════════════════════════════════════════════════════════════
+
+test "batteries: cors — preflight answered 204, simple request decorated" {
+    mut c = Cors.new()
+    c.allow_origin("https://app.example")
+    mut r = Router.new()
+    r.layer(cors(c))
+    r.get("/x", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, "ok"))!!
+
+    ro simple = route_once(r, get_req_h("/x", "Origin", "https://app.example"))
+    assert(simple.status_code() == 200)
+    assert(hdr(simple, "Access-Control-Allow-Origin") == "https://app.example")
+
+    ro preflight_raw = "OPTIONS /x HTTP/1.1\r\nHost: n\r\nOrigin: https://app.example\r\nAccess-Control-Request-Method: GET\r\n\r\n".bytes()
+    ro preflight = route_once(r, preflight_raw)
+    assert(preflight.status_code() == 204)
+}
+
+test "batteries: compress — gzip only above min_size and when the client accepts it" {
+    mut r = Router.new()
+    r.layer(compression(Compression.new()))
+    consume sb = StringBuilder.new()
+    mut i = 0
+    while i < 100 { sb.append("the quick brown fox jumps over the lazy dog; "); i += 1 }
+    ro big = sb.into_str()
+    r.get("/x", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, big))!!
+
+    ro accepted = route_once(r, get_req_h("/x", "Accept-Encoding", "gzip"))
+    assert(hdr(accepted, "Content-Encoding") == "gzip")
+    ro declined = route_once(r, get_req("/x"))
+    assert(hdr(declined, "Content-Encoding") == "")
+}
+
+test "batteries: log — one line per request, X-Request-Id propagated" {
+    mut lines []str = []
+    mut cfg = Log.new()
+    cfg.sink(fn(line str) -> () => { lines.push(line) })
+    with Time = th.fixed_ms(0) {
+        mut r = Router.new()
+        r.layer(logger(cfg))
+        r.get("/x", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, "ok"))!!
+        ro resp = route_once(r, get_req("/x"))
+        assert(hdr(resp, "x-request-id") == "req-1")
+        assert(lines.len() == 1)
+        assert(lines[0] == "[req-1] GET /x -> 200 2B in 0ms")
+    }
+}
+
+test "batteries: ratelimit — burst within capacity passes, then 429 + Retry-After" {
+    with Time = th.fixed_ms(0) {
+        mut r = Router.new()
+        r.layer(ratelimit(RateLimit.new(1, 1.0)))
+        r.get("/x", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, "ok"))!!
+        assert(route_once(r, get_req("/x")).status_code() == 200)
+        ro second = route_once(r, get_req("/x"))
+        assert(second.status_code() == 429)
+        assert(hdr(second, "retry-after") == "1")
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// auth.md
+// ═══════════════════════════════════════════════════════════════════════
+
+test "auth: Bearer extractor — token in, 401 out on a missing/wrong-scheme header" {
+    mut r = Router.new()
+    r.get("/who", fn(req ServerRequest) -> ServerResponse {
+        match Bearer.from_request(req) {
+            Ok(b)  => ServerResponse.text(StatusCode.OK, "tok=${b.token()}")
+            Err(e) => e.into_response()
+        }
+    })!!
+    assert(wire_str(serve_once(r, get_req_h("/who", "Authorization", "Bearer abc"))).contains("tok=abc"))
+    assert(status_line(serve_once(r, get_req("/who"))) == "HTTP/1.1 401 Unauthorized")
+}
+
+test "auth: BasicAuth extractor decodes user:pass" {
+    mut r = Router.new()
+    r.get("/basic", fn(req ServerRequest) -> ServerResponse {
+        match BasicAuth.from_request(req) {
+            Ok(a)  => ServerResponse.text(StatusCode.OK, "u=${a.user()}")
+            Err(e) => e.into_response()
+        }
+    })!!
+    ro raw = get_req_h("/basic", "Authorization", "Basic YWxpY2U6czNjcmV0") // base64("alice:s3cret")
+    assert(wire_str(serve_once(r, raw)).contains("u=alice"))
+}
+
+#serde(allow_unknown)
+#impl(Deserialize)
+type AuthClaims value { ro sub str }
+
+test "auth: require_jwt middleware guard + JwtAuth.claims_at[T] inside the handler" {
+    ro secret = "sample-secret".bytes()
+    ro auth = JwtAuth.new(secret)
+    mut r = Router.new()
+    r.layer(require_jwt(auth, fn() -> u64 => 1_500_000_000))
+    r.get("/me", fn(req ServerRequest) -> ServerResponse {
+        match auth.claims_at[AuthClaims](req, 1_500_000_000) {
+            Ok(c)  => ServerResponse.text(StatusCode.OK, "sub=${c.claims().sub}")
+            Err(e) => e.into_response()
+        }
+    })!!
+    assert(status_line(serve_once(r, get_req("/me"))) == "HTTP/1.1 401 Unauthorized")
+}
+
+test "auth: CookieJar + Set-Cookie round-trip" {
+    mut r = Router.new()
+    r.get("/set", fn(req ServerRequest) -> ServerResponse {
+        ro c = "sid=xyz; Path=/; Max-Age=60; Secure; HttpOnly; SameSite=Lax".to_setcookie()!!
+        mut resp = ServerResponse.text(StatusCode.OK, "ok")
+        resp.set_cookie(c)
+        resp
+    })!!
+    r.get("/jar", fn(req ServerRequest) -> ServerResponse {
+        match CookieJar.from_request(req) {
+            Ok(jar) => {
+                ro sid = jar.get("sid") ?? "?"
+                ServerResponse.text(StatusCode.OK, "sid=${sid}")
+            }
+            Err(e)  => e.into_response()
+        }
+    })!!
+    assert(wire_str(serve_once(r, get_req("/set"))).contains("set-cookie: sid=xyz"))
+    assert(wire_str(serve_once(r, get_req_h("/jar", "Cookie", "sid=xyz"))).contains("sid=xyz"))
+}
+
+test "auth: session_layer assigns + persists a session id via cookie" {
+    mut store = MemorySessionStore.new(60_000)
+    ro cfg = SessionConfig.new().with_cookie_name("sess")
+    mut r = Router.new()
+    r.layer(session_layer(store, cfg, fn() -> u64 => 1_000, fn() -> str => "gen-1"))
+    r.get("/s", fn(req ServerRequest) -> ServerResponse {
+        ro sid = req.param("session_id") ?? "?"
+        ServerResponse.text(StatusCode.OK, "sid=${sid}")
+    })!!
+
+    ro first = serve_once(r, get_req("/s"))
+    assert(wire_str(first).contains("sid=gen-1"))
+    assert(wire_str(first).contains("set-cookie: sess=gen-1"))
+    ro second = serve_once(r, get_req_h("/s", "Cookie", "sess=have-7"))
+    assert(wire_str(second).contains("sid=have-7"))
+    assert(!wire_str(second).contains("set-cookie"))
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// static-files.md
+// ═══════════════════════════════════════════════════════════════════════
+
+fn static_fixture() -> EmbeddedDir =>
+    EmbeddedDir.new([
+        EmbeddedEntry { path: "index.html", data: "<h1>hi</h1>".bytes() },
+        EmbeddedEntry { path: "notes/readme.txt", data: "hello world".bytes() },
+    ])
+
+test "static-files: serve embedded assets — mime, ETag, index resolution, 404" {
+    mut r = Router.new()
+    r.get("/assets/{*path}", static_handler(static_fixture(), Static.new(), "path"))!!
+
+    ro txt = route_once(r, get_req("/assets/notes/readme.txt"))
+    assert(txt.status_code() == 200)
+    assert(hdr(txt, "content-type") == "text/plain; charset=utf-8")
+    assert(hdr(txt, "etag") != "")
+
+    ro missing = route_once(r, get_req("/assets/nope.txt"))
+    assert(missing.status_code() == 404)
+
+    // empty {*path} can't come through the router (no request maps to it) —
+    // call serve_path directly to serve the index file, same as static_handler does.
+    mut r2 = Router.new()
+    r2.get("/", fn(req ServerRequest) -> ServerResponse =>
+        serve_path(static_fixture(), Static.new(), "", req))!!
+    ro idx = route_once(r2, get_req("/"))
+    assert(hdr(idx, "content-type") == "text/html; charset=utf-8")
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// websocket.md
+// ═══════════════════════════════════════════════════════════════════════
+
+/// compile-only: a WebSocket echo handler — `WebSocketUpgrade` extracts +
+/// validates the handshake, `@on_upgrade` hands the live socket to `h` once
+/// the 101 response has gone out. Cannot run inside `test { }` (needs a
+/// real TCP connection to upgrade); see `polaris.ws.rt.socket_echo_smoke`
+/// in this package's own test suite for the live loopback proof.
+fn ws_echo_handler(req ServerRequest) -> ServerResponse {
+    match WebSocketUpgrade.from_request(req) {
+        Ok(up) => up.on_upgrade(fn(sock WebSocket) Net -> () {
+            mut ws = sock
+            mut running = true
+            while running {
+                match ws.recv() {
+                    Ok(Some(Message.Text(t))) => { ro _ = ws.send(Message.Text(t)) } // echo
+                    Ok(Some(_))                => ()                                  // Ping already auto-Ponged
+                    Ok(None)                   => { running = false }
+                    Err(_)                     => { running = false }
+                }
+            }
+            ro _ = ws.close(1000, "bye")
+        })
+        Err(e) => e.into_response()
+    }
+}
+
+test "websocket: a non-upgrade request is rejected before any socket work" {
+    mut r = Router.new()
+    r.get("/ws", ws_echo_handler)!!
+    ro wire = serve_once(r, get_req("/ws"))
+    assert(status_line(wire) != "HTTP/1.1 101 Switching Protocols")
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// serving.md
+// ═══════════════════════════════════════════════════════════════════════
+
+test "serving: ServerPolicy documented defaults + fluent tuning" {
+    ro p = ServerPolicy.new()
+    assert(p.max_inflight() == 16)
+    assert(p.reject_with_503() == true)
+    assert(p.max_requests_per_conn() == 100)
+    assert(p.max_body_bytes() == 1048576)
+
+    mut q = ServerPolicy.new()
+    q.max_inflight(64).max_body_bytes(4 * 1024 * 1024)
+    assert(q.max_inflight() == 64)
+    assert(q.max_body_bytes() == 4194304)
+}
+
+test "serving: BackgroundTasks run AFTER the response, in FIFO order" {
+    mut order []int = []
+    mut bg = BackgroundTasks.new()
+    bg.add(|| { order.push(1) })
+    bg.add(|| { order.push(2) })
+    assert(bg.task_count() == 2)
+    bg.drain() // the connection driver calls this once the response bytes are on the wire
+    assert(order.len() == 2)
+    assert(order[0] == 1)
+    assert(order[1] == 2)
+}
+
+test "serving: SSE — text/event-stream headers + event/data framing" {
+    mut r = Router.new()
+    r.get("/events", fn(req ServerRequest) -> ServerResponse {
+        ro chunks [][]u8 = [sse_event("tick", "1"), sse_event("done", "bye")]
+        ServerResponse.sse(StreamBody.from_chunks(chunks))
+    })!!
+    ro wire = serve_once(r, get_req("/events"))
+    ro s = wire_str(wire)
+    assert(s.contains("content-type: text/event-stream"))
+    assert(s.contains("event: tick\ndata: 1\n\n"))
+    assert(s.ends_with("0\r\n\r\n"))
+}
+
+/// compile-only: `serve_router` — the reusable accept loop (keep-alive,
+/// deadlines, body-cap, admission control, multipart limits — all from one
+/// `ServerPolicy`) over a bound listener. `handle_connection_router` is the
+/// single-shot (`Connection: close`) alternative for one already-accepted
+/// stream. Cannot run inside `test { }` (opens a real listening socket).
+fn serving_main(consume listener TcpListener, consume single TcpStream, app Router) Net Time Detach -> () {
+    serve_router(listener, app, ServerPolicy.new())
+    ro _ = handle_connection_router(single, app)
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// errors.md
+// ═══════════════════════════════════════════════════════════════════════
+
+test "errors: HttpError.into_response() maps ErrorKind to a status + structured JSON body" {
+    ro resp = HttpError.protocol_error("bad shape").into_response()
+    assert(resp.status_code() == 400)
+    ro body = unsafe { resp.body.to_str_unchecked() }
+    assert(body.contains("\"error\":\"protocol\""))
+    assert(body.contains("\"message\""))
+
+    assert(HttpError.body_too_large().into_response().status_code() == 413)
+    assert(HttpError.new(Status(StatusCode.FORBIDDEN)).into_response().status_code() == 403)
+}
+
+fn lookup(id str) -> Result[str, HttpError] {
+    if id == "1" { Ok("found") } else { Err(HttpError.new(Status(StatusCode.NOT_FOUND))) }
+}
+
+test "errors: a plain Result[T, HttpError] helper composes into a handler via the blanket" {
+    mut r = Router.new()
+    r.get("/items/{id}", fn(req ServerRequest) -> ServerResponse =>
+        lookup(req.param("id") ?? "").into_response())!!
+
+    assert(status_line(serve_once(r, get_req("/items/1"))) == "HTTP/1.1 200 OK")
+    assert(status_line(serve_once(r, get_req("/items/9"))) == "HTTP/1.1 404 Not Found")
+}
