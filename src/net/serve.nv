@@ -121,7 +121,7 @@ type ConnStep enum
 // (`policy.panic_emit`/`@panic_sink`) and answers per `policy.panic_response()`:
 // `InternalError500` -> writes a 500 (in THIS, the un-panicked caller fiber —
 // the spawn already exited), `Close` -> writes nothing.
-fn run_request(s mut TcpStream, handler fn([]u8) -> ServerResponse, raw []u8, policy ServerPolicy, keep_alive bool) Net Time -> ConnStep {
+fn run_request(mut s TcpStream, handler fn([]u8) -> ServerResponse, raw []u8, policy ServerPolicy, keep_alive bool) Net Time -> ConnStep {
     // `failed`/`reason` captured by `on_child_fail` below — legal (checked:
     // `nova check src --strict-effects` is clean, no E_CONCURRENT_MUT_CAPTURE
     // for either), and NOT a coincidence of the type being `bool`/`str`: the
@@ -223,7 +223,7 @@ fn run_request(s mut TcpStream, handler fn([]u8) -> ServerResponse, raw []u8, po
 //    those two take `consume` and unconditionally `@close()` the stream
 //    (correct for the single-shot handler, wrong here). ────────────────────
 
-fn write_response_keepalive(s mut TcpStream, resp ServerResponse) Net -> Result[(), NetError] {
+fn write_response_keepalive(mut s TcpStream, resp ServerResponse) Net -> Result[(), NetError] {
     if resp.is_streaming() {
         write_streaming_keepalive(s, resp)
     } else {
@@ -231,14 +231,14 @@ fn write_response_keepalive(s mut TcpStream, resp ServerResponse) Net -> Result[
     }
 }
 
-fn write_streaming_keepalive(s mut TcpStream, resp ServerResponse) Net -> Result[(), NetError] {
+fn write_streaming_keepalive(mut s TcpStream, resp ServerResponse) Net -> Result[(), NetError] {
     match s.write_all(serialize_response_head(resp)) {
         Ok(_)  => write_stream_chunks_keepalive(s, resp)
         Err(e) => Err(e)
     }
 }
 
-fn write_stream_chunks_keepalive(s mut TcpStream, resp ServerResponse) Net -> Result[(), NetError] {
+fn write_stream_chunks_keepalive(mut s TcpStream, resp ServerResponse) Net -> Result[(), NetError] {
     match resp.take_stream() {
         None => Ok(())   // unreachable: caller checked @is_streaming()
         Some(sb) => {

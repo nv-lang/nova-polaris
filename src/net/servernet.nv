@@ -161,7 +161,7 @@ fn write_stream_chunks(consume stream TcpStream, resp ServerResponse) Net -> Res
 // Read until the header block terminator, then the Content-Length body. On EOF/error
 // mid-read, returns what was accumulated (the parser then yields a 400). `Ok(0)`
 // (clean EOF, D407 byte surface) and a hard read error both end a loop.
-fn read_request(s mut TcpStream) Net -> []u8 {
+fn read_request(mut s TcpStream) Net -> []u8 {
     mut acc []u8 = []u8.new()
     mut header_end = -1
     mut reading = true

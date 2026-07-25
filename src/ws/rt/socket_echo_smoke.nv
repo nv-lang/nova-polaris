@@ -137,7 +137,7 @@ test "ws: live handshake + echo (text, fragmented text, binary, ping) + close, o
 
                         // `c0` is reused directly for every write/read below (by-reference
                         // `mut s TcpStream` free-fn param, same shape as `servernet.nv`'s
-                        // own `read_request(s mut TcpStream)` — that precedent calls
+                        // own `read_request(mut s TcpStream)` — that precedent calls
                         // `s.write_all(...)` again AFTER `read_request(s)` returns, proving
                         // the param is a mutable BORROW, not a move). An earlier version of
                         // this test instead threaded `c0 -> c1 -> ... -> c5` through a

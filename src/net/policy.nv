@@ -52,7 +52,7 @@ type ReadAttempt enum
     | TimedOut
     | Errored
 
-fn read_attempt(s mut TcpStream, deadline Monotonic) Net Time -> ReadAttempt {
+fn read_attempt(mut s TcpStream, deadline Monotonic) Net Time -> ReadAttempt {
     ro (tx, rx) = Channel.new(1)
     mut timed_out = false
     with Fail[TimeoutError] = |_e| { timed_out = true } {
@@ -89,7 +89,7 @@ type HeaderPhase enum
     | HeaderTimeout        // slowloris: some bytes arrived, block never completed
     | Broken               // EOF/error mid-header — quiet close
 
-fn read_header_phase(s mut TcpStream, policy ServerPolicy) Net Time -> HeaderPhase {
+fn read_header_phase(mut s TcpStream, policy ServerPolicy) Net Time -> HeaderPhase {
     ro idle_dl = Monotonic.now() + policy.idle_deadline()
     mut acc []u8 = []u8.new()
     mut header_end = -1
@@ -150,7 +150,7 @@ type BodyPhase enum
 // request` below) hands it in once and never reuses the caller's binding
 // afterward, so an in-out param is the cheapest fix (D246 canon (a)) — no
 // independent copy needed.
-fn read_body_identity(s mut TcpStream, need int, mut already []u8, deadline Monotonic) Net Time -> BodyPhase {
+fn read_body_identity(mut s TcpStream, need int, mut already []u8, deadline Monotonic) Net Time -> BodyPhase {
     mut acc = already
     mut reading = acc.len() < need
     mut timed_out = false
@@ -172,7 +172,7 @@ fn read_body_identity(s mut TcpStream, need int, mut already []u8, deadline Mono
 
 // Same rationale as `read_body_identity` above — `already` is `mut` (in-out,
 // D246 canon (a)), the sole call site never reuses its own binding after.
-fn read_body_chunked(s mut TcpStream, mut already []u8, max_bytes int, deadline Monotonic) Net Time -> BodyPhase {
+fn read_body_chunked(mut s TcpStream, mut already []u8, max_bytes int, deadline Monotonic) Net Time -> BodyPhase {
     mut buf = already
     mut out = WriteBuffer.new()
     mut pos = 0
@@ -420,7 +420,7 @@ type GovernedRead enum
     | ConnectionDone                 // quiet close, nothing to write (idle timeout / peer gone)
 
 #stable(since = "0.1")
-export fn read_one_request(s mut TcpStream, policy ServerPolicy, served_count int) Net Time -> GovernedRead {
+export fn read_one_request(mut s TcpStream, policy ServerPolicy, served_count int) Net Time -> GovernedRead {
     match read_header_phase(s, policy) {
         IdleTimeout => GovernedRead.ConnectionDone
         Broken      => GovernedRead.ConnectionDone
