@@ -31,5 +31,5 @@ src = "src"
 # compression, migrated from nova-http) imports it directly — same
 # leaf-dependency shape as `http`'s own `compress` dep (Plan 205 Ф.2).
 [dependencies]
-http = { git = "https://github.com/nv-lang/nova-http", version = "0.1" }
+http = { path = "../nova-http" }  # dev-форма до релизного тега (прецедент examples/nova.toml); при v0.1-теге -> git+version (D420)
 compress = { git = "https://github.com/nv-lang/nova-compress", version = "0.1" }
