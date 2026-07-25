@@ -21,7 +21,7 @@
 //      ACTUALLY elapse (not race a fast completion/EOF) — CORRECT.
 //   2. TWO sequential deadline-guarded reads (first gets data quickly,
 //      second must actually time out) in the same shape — CORRECT.
-//   3. Same as (2) plus a `Semaphore.try_acquire_permit()` / `consume p {
+//   3. Same as (2) plus a `Semaphore.try_acquire()` / `consume p {
 //      }` admission wrapper around it (matching `serve()`'s own shape) —
 //      CORRECT.
 //   4. A HAND-WRITTEN line-for-line reproduction of `read_header_phase`'s

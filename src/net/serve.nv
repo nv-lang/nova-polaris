@@ -23,7 +23,7 @@
 // generalized into this package as a policy KNOB (`ServerPolicy.
 // max_inflight`/`reject_with_503`) instead of a hardcoded app-level constant.
 //
-// ADMISSION GATE = `Semaphore.try_acquire_permit() -> Option[Permit]` (owner
+// ADMISSION GATE = `Semaphore.try_acquire() -> Option[Permit]` (owner
 // decision 2026-07-23, migrated same-day once the primitive landed —
 // `std/runtime/sync.nv`'s own doc-comment names "connection pool capacity"
 // as `Semaphore`'s canonical use case). WHY NOT a bare `AtomicInt` counter:
@@ -38,11 +38,11 @@
 // (superseding this file's EARLIER `defer sem.release()`-based attempt,
 // which itself had to route around a SEPARATE codegen defect — see
 // `release_after`'s own git-history note, now removed along with it).
-// `try_acquire_permit()` itself is non-blocking (`None` immediately on
+// `try_acquire()` itself is non-blocking (`None` immediately on
 // exhaustion, per its own doc-comment "designed for admission control:
 // take slot or reject immediately") — exactly the non-parking semantics
-// admission needs; no `try_acquire() -> bool` + manual `release()` pairing
-// anymore.
+// admission needs; the retired bool+manual-`release()` door is gone for good
+// (R3 D325 rename 2026-07-26: `try_acquire_permit` -> `try_acquire`).
 //
 // LAYER CONTRACT (Plan 222 §0а, refit 2026-07-23): same as `servernet.nv`'s
 // own note — `serve`/`serve_connection` take a byte-level callback
@@ -141,7 +141,7 @@ fn run_request(mut s TcpStream, handler fn([]u8) -> ServerResponse, raw []u8, po
     mut reason = ""
     mut step ConnStep = ConnStep.StepCloseErr
     with Supervisor = effect Supervisor {
-        on_child_fail(idx, err) -> Decision {
+        on_child_fail(idx int, err any) -> Decision {
             failed = true
             if Some(msg) = err.try_as[str]() {
                 reason = msg
@@ -284,12 +284,11 @@ fn write_stream_chunks_keepalive(mut s TcpStream, resp ServerResponse) Net -> Re
 // enforce `max_requests_per_conn`).
 #stable(since = "0.1")
 export fn serve_connection(consume stream TcpStream, handler fn([]u8) -> ServerResponse, policy ServerPolicy) Net Time -> Result[(), NetError] {
-    consume s = stream
     mut served_count = 0
     mut keep_going = true
     mut final_result Result[(), NetError] = Ok(())
     while keep_going {
-        match read_one_request(s, policy, served_count) {
+        match read_one_request(stream, policy, served_count) {
             Ready(raw, keep_alive) => {
                 served_count += 1
                 // ws-hijack (task 1) + recover-500 (task 2): `run_request`
@@ -298,7 +297,7 @@ export fn serve_connection(consume stream TcpStream, handler fn([]u8) -> ServerR
                 // own spawned fiber (see that fn's own banner for why the
                 // response value never crosses back out here, only the
                 // `ConnStep` discriminator does).
-                match run_request(s, handler, raw, policy, keep_alive) {
+                match run_request(stream, handler, raw, policy, keep_alive) {
                     StepKeepAlive => { keep_going = true }
                     StepClose     => { keep_going = false }
                     StepCloseErr  => { keep_going = false; final_result = Err(NetError.Closed) }
@@ -306,7 +305,7 @@ export fn serve_connection(consume stream TcpStream, handler fn([]u8) -> ServerR
             }
             EarlyResponse(mut resp) => {
                 resp.header("Connection", "close")
-                ro _ = write_response_keepalive(s, resp)
+                ro _ = write_response_keepalive(stream, resp)
                 keep_going = false
             }
             ConnectionDone => {
@@ -314,7 +313,6 @@ export fn serve_connection(consume stream TcpStream, handler fn([]u8) -> ServerR
             }
         }
     }
-    s.close()
     final_result
 }
 
@@ -335,7 +333,7 @@ export fn serve_connection(consume stream TcpStream, handler fn([]u8) -> ServerR
 //     (`policy.reject_with_503()`) instead of always just closing — a
 //     friendlier, retry-safe signal to a well-behaved client.
 //
-// The admission CHECK (`inflight.try_acquire_permit()`) runs INSIDE the
+// The admission CHECK (`inflight.try_acquire()`) runs INSIDE the
 // `detach { }` body, not before it — `detach consume c { ... }` only names
 // ONE explicit linear capture (D415 §4: "requires a block body — the
 // orphan fiber owns `c`"; no multi-name form, confirmed empirically), and
@@ -353,36 +351,24 @@ export fn serve_connection(consume stream TcpStream, handler fn([]u8) -> ServerR
 // `[M-187-high-concurrency-connection-wedge]` was actually about.
 #stable(since = "0.1")
 export fn serve(consume listener TcpListener, handler fn([]u8) -> ServerResponse, policy ServerPolicy) Net Time Detach {
-    consume lst = listener
-    // [M-nv-spawn-ctx-capture-mut-param-ptr-mismatch]: CLOSED (ОКНО-1,
-    // 2026-07-23, nova main f83d3d87f) — the residual variant this file
-    // used to route around (capturing a bare VALUE-type PARAMETER into a
-    // `detach { ... }` ctx after an earlier `ro`-receiver method call on it,
-    // e.g. `policy.max_inflight()` below) is fixed; `policy`/`handler`
-    // capture straight into `detach { }` with no local-rebind indirection
-    // needed anymore (confirmed by this file's own `nova test` run — see
-    // task report for the pass count).
     mut inflight = Semaphore.new(policy.max_inflight())
     mut running = true
     while running {
-        match lst.accept() {
+        match listener.accept() {
             Ok(consume stream) => {
                 detach consume stream {
-                    match inflight.try_acquire_permit() {
+                    match inflight.try_acquire() {
+                        // `p` (the Permit) lives in this connection's scope —
+                        // `@cleanup` (D432) releases the slot on scope exit,
+                        // success OR panic; the rejected branch relies on the
+                        // same auto-`@cleanup` to close `stream`.
                         Some(consume p) => {
-                            // `p` lives in THIS connection's own scope —
-                            // `@cleanup` (D432) releases the slot on scope
-                            // exit, success OR panic, no defer/bare-release
-                            // pairing needed.
-                            consume p {
-                                ro _ = serve_connection(stream, handler, policy)
-                            }
+                            ro _ = serve_connection(stream, handler, policy)
                         }
                         None => {
                             if policy.reject_with_503() {
-                                ro _ = stream.write_all("HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n".bytes())
+                                ro _ = stream.write_all("HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n")
                             }
-                            stream.close()
                         }
                     }
                 }
@@ -392,9 +378,8 @@ export fn serve(consume listener TcpListener, handler fn([]u8) -> ServerResponse
                 // KEEP LOOPING (do not exit). Mirrors the fixed-interval
                 // retry shape already proven in this codebase's own
                 // reconnect/backoff call sites; no unbounded busy-loop.
-                (20).to_millis().sleep()
+                20.to_millis().sleep()
             }
         }
     }
-    lst.close()
 }
