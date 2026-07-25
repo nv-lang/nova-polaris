@@ -1,0 +1,10 @@
+# nova.toml — Polaris example: polaris-example-04-middleware
+
+[package]
+name = "polaris-example-04-middleware"
+version = "0.1.0"
+description = "custom middleware, layer ordering, log+ratelimit batteries"
+
+[dependencies]
+polaris = { path = "../.." }
+http = { path = "../../../nova-http" }

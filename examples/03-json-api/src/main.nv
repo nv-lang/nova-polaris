@@ -1,0 +1,165 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Polaris example 03 — json-api: REST CRUD over an in-memory todo list.
+// `Json[T]` extraction on the way in, `ServerResponse.json`/the `Serialize`
+// blanket on the way out, `#impl(Serialize + Deserialize)` on the domain
+// type, `HttpError`/`StatusCode` for the not-found/bad-input paths.
+// By way of: axum's `todos` example, the FastAPI tutorial's items CRUD.
+
+module main
+
+import polaris.{Router, ServerRequest, ServerResponse, Json, get, post, put, delete}
+import polaris.net.{ServerPolicy}
+import polaris.serve.{serve_router, handle_connection_router}
+import http.{StatusCode, HttpError}
+import std.net.{TcpListener, SocketAddr}
+import std.encoding.serde.{Serialize, Deserialize}
+
+#impl(Serialize + Deserialize)
+type Todo value { ro id int, ro title str, ro done bool }
+
+// Separate input shapes: a client creating a todo supplies only a title; a
+// client updating one supplies both fields it may change. Keeps `Todo`
+// itself (with its server-assigned `id`) out of what a client can dictate.
+#impl(Deserialize)
+type NewTodo value { ro title str }
+
+#impl(Deserialize)
+type TodoUpdate value { ro title str, ro done bool }
+
+fn not_found() -> ServerResponse => HttpError.new(Status(StatusCode.NOT_FOUND)).into_response()
+fn bad_request() -> ServerResponse => HttpError.new(Status(StatusCode.BAD_REQUEST)).into_response()
+
+// One line of hand-built JSON per `Todo` — sidesteps a currently-open
+// codegen gap around `Vec[T Serialize]` (serde's collection support is
+// still landing, see docs/roadmap.md's own "not implemented yet" list);
+// each *individual* `Todo` still goes through the real `Serialize` derive
+// via `ServerResponse.json` everywhere else on this page (create/read one/
+// update). Filed upstream; this is the one line in this whole example set
+// standing in for a gap, not a design choice.
+fn todo_json_line(t Todo) -> str =>
+    "{\"id\":${t.id},\"title\":\"${t.title}\",\"done\":${t.done}}"
+
+fn todos_json(items Vec[Todo]) -> str {
+    consume sb = StringBuilder.new()
+    sb.append("[")
+    mut first = true
+    for t in items {
+        if !first { sb.append(",") }
+        first = false
+        sb.append(todo_json_line(t))
+    }
+    sb.append("]")
+    sb.into_str()
+}
+
+fn find_by_id(items Vec[Todo], id int) -> Option[Todo] {
+    for t in items {
+        if t.id == id { return Some(t) }
+    }
+    None
+}
+
+fn build_router() -> Router {
+    mut items Vec[Todo] = Vec[Todo].new()
+    mut next_id = 1
+    mut r = Router.new()
+
+    // Every path that carries MORE THAN ONE HTTP method here is registered
+    // as ONE explicit `MethodRouter` chain (`get(h).post(h2)`, `get(h).put(
+    // h2).delete(h3)`), never as separate same-path `.get()`/`.post()`/…
+    // calls on the same router — confirmed via minimal repro during this
+    // wave: two-or-more independent same-path registrations, each a closure
+    // separately capturing + looping over the outer `mut items`, hit a
+    // currently-open codegen gap at *registration* time (crashes before the
+    // first request even arrives); the exact same handlers as one shared
+    // `MethodRouter` chain do not. Filed upstream — every OTHER example in
+    // this set (02-routing included) registers single-method routes the
+    // plain way; this file needs the chained form throughout because every
+    // one of its paths carries 2-3 methods over the same captured state.
+    r.route("/todos",
+        get(fn(req ServerRequest) -> ServerResponse =>
+            ServerResponse.bytes(StatusCode.OK, "application/json", todos_json(items).bytes()))
+        .post(fn(req ServerRequest) -> ServerResponse {
+            match Json[NewTodo].from_request(req) {
+                Ok(body) => {
+                    ro created = Todo { id: next_id, title: body.data().title, done: false }
+                    next_id += 1
+                    items.push(created)
+                    ServerResponse.json(StatusCode.CREATED, created)
+                }
+                Err(e) => e.into_response()
+            }
+        }))!!
+
+    r.route("/todos/{id}",
+        get(fn(req ServerRequest) -> ServerResponse {
+            match (req.param("id") ?? "").to_int() {
+                Ok(id) => match find_by_id(items, id) {
+                    Some(t) => ServerResponse.json(StatusCode.OK, t)
+                    None    => not_found()
+                }
+                Err(_) => bad_request()
+            }
+        }).put(fn(req ServerRequest) -> ServerResponse {
+            match (req.param("id") ?? "").to_int() {
+                Ok(id) => match find_by_id(items, id) {
+                    Some(_) => match Json[TodoUpdate].from_request(req) {
+                        Ok(body) => {
+                            ro updated = Todo { id, title: body.data().title, done: body.data().done }
+                            mut i = 0
+                            mut done_updating = false
+                            while i < items.len() && !done_updating {
+                                ro existing = items[i]
+                                if existing.id == id { items[i] = updated; done_updating = true }
+                                i += 1
+                            }
+                            ServerResponse.json(StatusCode.OK, updated)
+                        }
+                        Err(e) => e.into_response()
+                    }
+                    None => not_found()
+                }
+                Err(_) => bad_request()
+            }
+        }).delete(fn(req ServerRequest) -> ServerResponse {
+            match (req.param("id") ?? "").to_int() {
+                Ok(id) => match find_by_id(items, id) {
+                    Some(_) => {
+                        mut i = 0
+                        mut removed = false
+                        while i < items.len() && !removed {
+                            ro existing = items[i]
+                            if existing.id == id { ro _ = items.remove(i); removed = true } else { i += 1 }
+                        }
+                        ServerResponse.empty(StatusCode.NO_CONTENT)
+                    }
+                    None => not_found()
+                }
+                Err(_) => bad_request()
+            }
+        }))!!
+
+    r
+}
+
+/// Canonical production shape (serving.md) — compile-checked, never called.
+/// See examples/README.md for why `main()` below drives the loop by hand.
+fn production_main() Net Time Detach -> () {
+    consume listener = TcpListener.bind(SocketAddr.from_str("0.0.0.0:18084")!!)!!
+    serve_router(listener, build_router(), ServerPolicy.new())
+}
+
+fn main() Net Detach -> () {
+    ro app = build_router()
+    supervised {
+        spawn {
+            consume listener = TcpListener.bind(SocketAddr.from_str("0.0.0.0:18084")!!)!!
+            while true {
+                match listener.accept() {
+                    Ok(consume stream) => { ro _ = handle_connection_router(stream, app) }
+                    Err(_) => ()
+                }
+            }
+        }
+    }
+}
