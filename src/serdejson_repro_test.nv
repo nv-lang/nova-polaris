@@ -12,8 +12,9 @@
 // `E_EXTENSION_METHOD_NEEDS_IMPORT` on `HashMap.serialize()`). Same
 // leanness rationale as the serdejson.nv module banner itself.
 
-module polaris
+module polaris.serdejson_repro_test
 
+import polaris.{Router, ServerResponse, serve_once}
 import std.encoding.serde.{Serialize, Deserialize, Serializer, Deserializer, SerError, DeError}
 import http.serdejson.{json_decode_body}
 
