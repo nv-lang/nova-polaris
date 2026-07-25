@@ -94,6 +94,8 @@ missing path (no information leak about *why* a path was rejected).
 
 ## Related documents
 
+**Full example:** [`examples/06-static-site`](../examples/06-static-site) — embedded assets, index fallback, Cache-Control, running for real.
+
 - [routing.md](routing.md) — the `{*path}` catch-all pattern `static_handler` expects
 - [handlers-response.md](handlers-response.md) — `ServerResponse`, headers
 - [`src/static.nv`](../src/static.nv), [`src/static_test.nv`](../src/static_test.nv)

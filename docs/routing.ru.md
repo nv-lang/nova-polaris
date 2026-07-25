@@ -211,6 +211,8 @@ Polaris вместо этого возвращает типизированны�
 
 ## Связанные документы
 
+**Полный пример:** [`examples/02-routing`](../examples/02-routing) — каждый приём этой страницы, реально запущенный.
+
 - [handlers-response.md](handlers-response.ru.md) — `ServerRequest`/`ServerResponse`, чтение параметров, `Handler`
 - [middleware.md](middleware.ru.md) — `Router.@layer` и его взаимодействие с `@nest`
 - [errors.md](errors.ru.md) — `HttpError` и то, как он превращается в ответ на проводе

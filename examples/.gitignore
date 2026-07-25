@@ -1,0 +1,10 @@
+# Codegen artifacts — each example's `nova build` writes `main.exe` (+ a
+# generated `.c`) at the example package root (not under `src/`, so the
+# repo-root .gitignore's `src/**/*.exe` doesn't cover it).
+*/main.exe
+*/main.c
+*/*.obj
+*/*.pdb
+*/*.ilk
+*/target/
+*/main.gc.log

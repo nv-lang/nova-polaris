@@ -1,0 +1,10 @@
+# nova.toml — Polaris example: polaris-example-06-static-site
+
+[package]
+name = "polaris-example-06-static-site"
+version = "0.1.0"
+description = "embedded static assets with index fallback and cache headers"
+
+[dependencies]
+polaris = { path = "../.." }
+http = { path = "../../../nova-http" }

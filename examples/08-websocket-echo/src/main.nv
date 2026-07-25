@@ -1,0 +1,124 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Polaris example 08 — websocket-echo: a real RFC 6455 handshake + echo
+// loop over a live loopback socket.
+// By way of: axum's `websockets` example.
+//
+// The documented idiom (`WebSocketUpgrade.from_request` + `Router`, see
+// docs/websocket.md) currently needs `polaris.net.serve_connection` (the
+// per-request-supervised connection driver `on_upgrade`'s hijack is wired
+// through) — the SAME `serve_router` code path every other example's
+// `production_main()` names as currently un-linkable in this toolchain
+// snapshot (`undefined symbol: nova_fn_hook`). This example instead drives
+// the handshake + `WebSocket` object directly against the accepted socket
+// — the exact shape this package's own live-socket proof
+// (`src/ws/rt/socket_echo_smoke.nv`) uses to validate the protocol layer
+// itself, unaffected by the gap above (no per-request `supervised{spawn{}}`
+// anywhere in this file besides the one enclosing the whole accept loop,
+// identical to every other example here).
+
+module main
+
+import polaris.ws.{WebSocket, Message, ws_accept_key}
+import std.net.{TcpListener, TcpStream, SocketAddr}
+
+// Index of the first CRLFCRLF in `b`, or -1 — the end of the HTTP request
+// header block (mirrors the same helper in socket_echo_smoke.nv).
+fn find_crlfcrlf(b []u8) -> int {
+    ro n = b.len()
+    mut i = 0
+    while i + 3 < n {
+        if (b[i] as int) == 0x0D && (b[i + 1] as int) == 0x0A &&
+           (b[i + 2] as int) == 0x0D && (b[i + 3] as int) == 0x0A {
+            return i
+        }
+        i += 1
+    }
+    -1
+}
+
+// A tiny by-hand header lookup over the raw request-head text (no `http`
+// core parser here — this file deliberately stays below the `Router`
+// layer, see the module doc-comment above).
+fn header_value(head str, name str) -> str {
+    ro lower = head.to_ascii_lower()
+    ro key = "${name.to_ascii_lower()}:"
+    match lower.find(key) {
+        Some(start) => {
+            ro line_start = start + key.byte_len()
+            ro rel_end = lower[line_start..lower.byte_len()].find("\r\n") ?? (lower.byte_len() - line_start)
+            head[line_start..line_start + rel_end].trim_ascii()
+        }
+        None => ""
+    }
+}
+
+fn read_head(mut s TcpStream) Net -> (str, []u8) {
+    mut acc []u8 = []u8.new()
+    mut header_end = -1
+    mut reading = true
+    while reading && header_end < 0 {
+        match s.read_to_vec(4096) {
+            Ok(chunk) => {
+                if chunk.len() == 0 { reading = false }
+                else { acc.append(chunk); header_end = find_crlfcrlf(acc) }
+            }
+            Err(_) => { reading = false }
+        }
+    }
+    if header_end < 0 { ("", []u8.new()) }
+    else {
+        ro head_bytes []u8 = acc[0..header_end]
+        ro rest []u8 = acc[header_end + 4..acc.len()]
+        (unsafe { head_bytes.to_str_unchecked() }, rest)
+    }
+}
+
+fn handle_upgrade(consume s TcpStream, head str) Net -> () {
+    ro client_key = header_value(head, "Sec-WebSocket-Key")
+    match ws_accept_key(client_key) {
+        Ok(accept_key) => {
+            ro resp_head = "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept_key}\r\n\r\n"
+            match s.write_all(resp_head.bytes()) {
+                Ok(_) => {
+                    mut ws = WebSocket.with_limit(s, 65536)
+                    mut running = true
+                    while running {
+                        match ws.recv() {
+                            Ok(Some(Message.Text(t)))   => { ro _ = ws.send(Message.Text(t)) }   // echo
+                            Ok(Some(Message.Binary(b))) => { ro _ = ws.send(Message.Binary(b)) } // echo
+                            Ok(Some(_))                 => ()                                    // Ping already auto-Ponged
+                            Ok(None)                    => { running = false }
+                            Err(_)                      => { running = false }
+                        }
+                    }
+                    ro _ = ws.close(1000, "bye")
+                }
+                Err(_) => s.close()
+            }
+        }
+        Err(_) => s.close()
+    }
+}
+
+fn handle_plain(consume s TcpStream) Net -> () {
+    ro _ = s.write_all("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok".bytes())
+    s.close()
+}
+
+fn main() Net Detach -> () {
+    supervised {
+        spawn {
+            consume listener = TcpListener.bind(SocketAddr.from_str("0.0.0.0:18089")!!)!!
+            while true {
+                match listener.accept() {
+                    Ok(consume stream) => {
+                        ro (head, _rest) = read_head(stream)
+                        if head.to_ascii_lower().contains("upgrade: websocket") { handle_upgrade(stream, head) }
+                        else { handle_plain(stream) }
+                    }
+                    Err(_) => ()
+                }
+            }
+        }
+    }
+}

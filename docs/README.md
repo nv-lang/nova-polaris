@@ -17,5 +17,8 @@ Start here: **[overview.md](overview.md)** — what Polaris is, a minimal server
 | [roadmap.md](roadmap.md) | planned, not implemented yet |
 
 Every code sample compiles as part of [`../src/doc_samples_test.nv`](../src/doc_samples_test.nv).
+For whole runnable applications built out of these pieces, see
+[`../examples/`](../examples/) — ten examples, simplest to most complete,
+each with its own "full example" link on the matching page above.
 
 **Русская версия:** [README.ru.md](README.ru.md) · each section has a `.ru.md` sibling.

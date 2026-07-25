@@ -207,6 +207,8 @@ different `{name}` param names claiming the same trie slot, and a
 
 ## Related documents
 
+**Full example:** [`examples/02-routing`](../examples/02-routing) — every pattern on this page, running for real.
+
 - [handlers-response.md](handlers-response.md) — `ServerRequest`/`ServerResponse`, reading params, `Handler`
 - [middleware.md](middleware.md) — `Router.@layer`, and how it interacts with `@nest`
 - [errors.md](errors.md) — `HttpError` and how it becomes a wire response

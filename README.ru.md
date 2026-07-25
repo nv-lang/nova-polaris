@@ -39,6 +39,12 @@ fn main() Net Time Detach -> () {
 от него зависит, и он приходит транзитивно для большинства пользователей
 Polaris.
 
+## Примеры
+
+[`examples/`](examples/) — десять целых запускаемых приложений, от
+простого к сложному, каждое свой пакет: `nova build --strict-effects` и
+реально запусти. См. [`examples/README.ru.md`](examples/README.ru.md).
+
 ## Документация
 
 - [`docs/overview.ru.md`](docs/overview.ru.md) — что такое Polaris,

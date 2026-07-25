@@ -1,0 +1,10 @@
+# nova.toml — Polaris example 01: hello — the smallest possible HTTP server.
+
+[package]
+name = "polaris-example-01-hello"
+version = "0.1.0"
+description = "Polaris example 01 — Router.new + one get + serve: ten lines to a working HTTP server"
+
+[dependencies]
+polaris = { path = "../.." }
+http = { path = "../../../nova-http" }

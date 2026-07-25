@@ -1,0 +1,10 @@
+# nova.toml — Polaris example: polaris-example-02-routing
+
+[package]
+name = "polaris-example-02-routing"
+version = "0.1.0"
+description = "path patterns, MethodRouter, nest, fallbacks, route conflicts"
+
+[dependencies]
+polaris = { path = "../.." }
+http = { path = "../../../nova-http" }

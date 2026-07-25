@@ -109,6 +109,8 @@ test "errors: a plain Result[T, HttpError] helper composes into a handler via th
 
 ## Связанные документы
 
+**Полный пример:** [`examples/03-json-api`](../examples/03-json-api) — `HttpError`/`StatusCode` и blanket `Result[T, HttpError]`, реально запущенные.
+
 - [handlers-response.md](handlers-response.ru.md) — `IntoResponse` целиком, режимы отказа extractors
 - [auth.md](auth.ru.md) — `401` от extractors Bearer/Basic/JWT, тот же маппинг
 - Сами `HttpError`/`ErrorKind` — собственный `src/error.nv` пакета [nova-http](https://github.com/nv-lang/nova-http)

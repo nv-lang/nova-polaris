@@ -1,0 +1,172 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Polaris example 10 — mini-service: "everything together", a trimmed
+// RealWorld (Conduit) profile — users/auth + articles CRUD + pagination —
+// at flagship-example scope but compact: json-api (03) + auth (05) +
+// middleware (04) + static (06) + policy (09), one service.
+// By way of: RealWorld (Conduit) — https://github.com/gothinkster/realworld
+
+module main
+
+import polaris.{Router, ServerRequest, ServerResponse, Json, Bearer, get, post}
+import polaris.middleware.log.{Log, logger}
+import polaris.static.{Static, serve_path}
+import polaris.net.{ServerPolicy}
+import polaris.serve.{serve_router, handle_connection_router}
+import http.{StatusCode, HttpError}
+import std.net.{TcpListener, SocketAddr}
+import std.encoding.serde.{Serialize, Deserialize}
+import std.encoding.json.{JsonValue}
+import std.crypto.jwt.{Jwt}
+
+// ── domain ────────────────────────────────────────────────────────────
+
+#impl(Serialize + Deserialize)
+type Article value { ro slug str, ro title str, ro body str, ro author str }
+
+#impl(Deserialize)
+type NewArticle value { ro title str, ro body str }
+
+#impl(Deserialize)
+type NewUser value { ro username str, ro password str }
+
+fn jwt_secret() -> []u8 => "mini-service-demo-secret".bytes()
+fn demo_now() -> u64 => 4_000_000_000 // see examples/05-auth for why a fixed clock
+
+fn mint_token(username str) -> str {
+    mut fields HashMap[str, JsonValue] = HashMap[str, JsonValue].new()
+    fields.insert("sub", JsonValue.str(username))
+    fields.insert("exp", JsonValue.num(5_000_000_000.0))
+    Jwt.encode_hs256(jwt_secret(), JsonValue.object(fields))
+}
+
+fn slugify(title str) -> str {
+    ro lower = title.to_ascii_lower()
+    consume sb = StringBuilder.new()
+    for c in lower.chars() {
+        if c == ' ' { sb.append("-") } else { sb.append(c.to_str()) }
+    }
+    sb.into_str()
+}
+
+fn article_json_line(a Article) -> str =>
+    "{\"slug\":\"${a.slug}\",\"title\":\"${a.title}\",\"body\":\"${a.body}\",\"author\":\"${a.author}\"}"
+
+fn articles_json(items Vec[Article], limit int, offset int) -> str {
+    consume sb = StringBuilder.new()
+    sb.append("[")
+    mut first = true
+    mut i = 0
+    mut emitted = 0
+    for a in items {
+        if i >= offset && emitted < limit {
+            if !first { sb.append(",") }
+            first = false
+            sb.append(article_json_line(a))
+            emitted += 1
+        }
+        i += 1
+    }
+    sb.append("]")
+    sb.into_str()
+}
+
+fn not_found() -> ServerResponse => HttpError.new(Status(StatusCode.NOT_FOUND)).into_response()
+fn bad_request() -> ServerResponse => HttpError.new(Status(StatusCode.BAD_REQUEST)).into_response()
+
+fn about_page() -> EmbeddedDir =>
+    EmbeddedDir.new([
+        EmbeddedEntry { path: "index.html", data: "<h1>mini-service</h1><p>A trimmed RealWorld profile over Polaris. See /articles and /users.</p>".bytes() },
+    ])
+
+fn build_router() Time -> Router {
+    mut users Vec[str] = Vec[str].new() // usernames only -- demo auth, not a real password store
+    mut articles Vec[Article] = Vec[Article].new()
+
+    mut r = Router.new()
+    r.layer(logger(Log.new()))
+
+    r.get("/health", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, "ok"))!!
+
+    r.get("/", fn(req ServerRequest) -> ServerResponse =>
+        serve_path(about_page(), Static.new(), "", req))!!
+
+    // ── users/auth ────────────────────────────────────────────────────
+    r.post("/users", fn(req ServerRequest) -> ServerResponse {
+        match Json[NewUser].from_request(req) {
+            Ok(body) => {
+                users.push(body.data().username)
+                ServerResponse.text(StatusCode.CREATED, mint_token(body.data().username))
+            }
+            Err(e) => e.into_response()
+        }
+    })!!
+
+    r.post("/users/login", fn(req ServerRequest) -> ServerResponse {
+        match Json[NewUser].from_request(req) {
+            Ok(body) => {
+                mut found = false
+                for u in users { if u == body.data().username { found = true } }
+                if found { ServerResponse.text(StatusCode.OK, mint_token(body.data().username)) }
+                else { HttpError.new(Status(StatusCode.UNAUTHORIZED)).into_response() }
+            }
+            Err(e) => e.into_response()
+        }
+    })!!
+
+    // ── articles: GET (public, paginated) + POST (requires Bearer, any
+    //    registered user) chained as ONE MethodRouter — see docs/errors.md
+    //    and examples/03-json-api's own note on why same-path multi-method
+    //    handlers sharing captured state must be chained explicitly. ─────
+    r.route("/articles",
+        get(fn(req ServerRequest) -> ServerResponse {
+            ro limit = match (req.query_param("limit") ?? "20").to_int() { Ok(n) => n, Err(_) => 20 }
+            ro offset = match (req.query_param("offset") ?? "0").to_int() { Ok(n) => n, Err(_) => 0 }
+            ServerResponse.bytes(StatusCode.OK, "application/json", articles_json(articles, limit, offset).bytes())
+        }).post(fn(req ServerRequest) -> ServerResponse {
+            match Bearer.from_request(req) {
+                Ok(_) => match Json[NewArticle].from_request(req) {
+                    Ok(body) => {
+                        ro created = Article { slug: slugify(body.data().title), title: body.data().title, body: body.data().body, author: "demo" }
+                        articles.push(created)
+                        ServerResponse.bytes(StatusCode.CREATED, "application/json", article_json_line(created).bytes())
+                    }
+                    Err(e) => e.into_response()
+                }
+                Err(e) => e.into_response()
+            }
+        }))!!
+
+    r.get("/articles/{slug}", fn(req ServerRequest) -> ServerResponse {
+        ro slug = req.param("slug") ?? ""
+        mut found Option[Article] = None
+        for a in articles { if a.slug == slug { found = Some(a) } }
+        match found {
+            Some(a) => ServerResponse.bytes(StatusCode.OK, "application/json", article_json_line(a).bytes())
+            None    => not_found()
+        }
+    })!!
+
+    r
+}
+
+/// Canonical production shape (serving.md) — compile-checked, never called.
+/// See examples/README.md for why `main()` below drives the loop by hand.
+fn production_main() Net Time Detach -> () {
+    consume listener = TcpListener.bind(SocketAddr.from_str("0.0.0.0:18091")!!)!!
+    serve_router(listener, build_router(), ServerPolicy.new())
+}
+
+fn main() Net Time Detach -> () {
+    ro app = build_router()
+    supervised {
+        spawn {
+            consume listener = TcpListener.bind(SocketAddr.from_str("0.0.0.0:18091")!!)!!
+            while true {
+                match listener.accept() {
+                    Ok(consume stream) => { ro _ = handle_connection_router(stream, app) }
+                    Err(_) => ()
+                }
+            }
+        }
+    }
+}

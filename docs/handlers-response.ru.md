@@ -317,6 +317,8 @@ test "handlers-response: StatusCode — named constants, validated new(), unsafe
 
 ## Связанные документы
 
+**Полный пример:** [`examples/03-json-api`](../examples/03-json-api) — `Json[T]`/`ServerResponse.json`/`IntoResponse` в настоящем REST CRUD-сервисе.
+
 - [routing.md](routing.ru.md) — где регистрируются `Handler`'ы
 - [middleware.md](middleware.ru.md) — обёртывание `Handler`
 - [errors.md](errors.ru.md) — маппинг статуса/тела у `HttpError` целиком

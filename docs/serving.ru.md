@@ -172,6 +172,8 @@ test "serving: BackgroundTasks run AFTER the response, in FIFO order" {
 
 ## Связанные документы
 
+**Полный пример:** [`examples/09-graceful`](../examples/09-graceful) — ручки `ServerPolicy` и `BackgroundTasks`, реально запущенные (см. также [`01-hello`](../examples/01-hello) — минимальная форма accept-цикла, и [`07-sse-stream`](../examples/07-sse-stream) — потоки/SSE).
+
 - [handlers-response.md](handlers-response.ru.md) — `ServerResponse`, значение, которое в итоге пишет `serve_router`
 - [errors.md](errors.ru.md) — чем пойманная паника отличается по форме от `HttpError`
 - [roadmap.md](roadmap.ru.md) — graceful-shutdown с дедлайном для фоновых задач (пока не подключён)

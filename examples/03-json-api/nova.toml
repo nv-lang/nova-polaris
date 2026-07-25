@@ -1,0 +1,10 @@
+# nova.toml — Polaris example: polaris-example-03-json-api
+
+[package]
+name = "polaris-example-03-json-api"
+version = "0.1.0"
+description = "REST CRUD in-memory todos with typed JSON extraction and IntoResponse"
+
+[dependencies]
+polaris = { path = "../.." }
+http = { path = "../../../nova-http" }

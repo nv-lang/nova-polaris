@@ -1,0 +1,46 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Polaris example 01 — hello: the smallest possible HTTP server.
+// By way of axum's own `hello-world` / Express's `app.get('/', ...)` hello.
+
+module main
+
+import polaris.{Router, ServerRequest, ServerResponse}
+import polaris.net.{ServerPolicy}
+import polaris.serve.{serve_router, handle_connection_router}
+import http.{StatusCode}
+import std.net.{TcpListener, SocketAddr}
+
+fn build_router() -> Router {
+    mut app = Router.new()
+    app.get("/hello/{name}", fn(req ServerRequest) -> ServerResponse {
+        ro name = req.param("name") ?? "world"
+        ServerResponse.text(StatusCode.OK, "hello, ${name}")
+    })!!
+    app.get("/", fn(req ServerRequest) -> ServerResponse =>
+        ServerResponse.text(StatusCode.OK, "hello, world -- try GET /hello/{name}"))!!
+    app
+}
+
+/// The canonical production shape (serving.md): a real accept loop with
+/// keep-alive/deadlines/admission-control, all from one `ServerPolicy`.
+/// Compile-checked, never called — see the README for why `main()` below
+/// drives the connection loop by hand instead in *this* toolchain snapshot.
+fn production_main() Net Time Detach -> () {
+    consume listener = TcpListener.bind(SocketAddr.from_str("0.0.0.0:18082")!!)!!
+    serve_router(listener, build_router(), ServerPolicy.new())
+}
+
+fn main() Net Detach -> () {
+    ro app = build_router()
+    supervised {
+        spawn {
+            consume listener = TcpListener.bind(SocketAddr.from_str("0.0.0.0:18082")!!)!!
+            while true {
+                match listener.accept() {
+                    Ok(consume stream) => { ro _ = handle_connection_router(stream, app) }
+                    Err(_) => ()
+                }
+            }
+        }
+    }
+}

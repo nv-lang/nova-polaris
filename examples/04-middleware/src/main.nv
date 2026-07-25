@@ -1,0 +1,81 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Polaris example 04 — middleware: a custom middleware(fn(req, next)), @then
+// composition, layer ordering, and two batteries (log, ratelimit).
+// By way of: axum's tower-middleware showcase, Express's middleware chain.
+
+module main
+
+import polaris.{Router, ServerRequest, ServerResponse, Handler, Middleware, middleware}
+import polaris.net.{ServerPolicy}
+import polaris.serve.{serve_router, handle_connection_router}
+import polaris.middleware.log.{Log, logger}
+import polaris.middleware.ratelimit.{RateLimit, ratelimit}
+import http.{StatusCode}
+import std.net.{TcpListener, SocketAddr}
+
+// ── a custom middleware, batteries style: one flat closure, no nested
+//    fn(next) -> Handler ceremony ────────────────────────────────────────
+
+fn add_tag(tag str, next Handler, req ServerRequest) -> ServerResponse {
+    mut resp = next(req)
+    ro prev = resp.headers.get("x-order")
+    ro prev_str = match prev { Some(hv) => match hv.to_str() { Ok(s) => s, Err(_) => "" }, None => "" }
+    resp.header("x-order", if prev_str == "" { tag } else { "${tag},${prev_str}" })
+    resp
+}
+
+fn tag_layer(tag str) -> Middleware {
+    ro t = tag
+    middleware(fn(req ServerRequest, next Handler) -> ServerResponse => add_tag(t, next, req))
+}
+
+fn build_router() Time -> Router {
+    mut r = Router.new()
+
+    // One log line per request to stdout, for every route below.
+    r.layer(logger(Log.new()))
+
+    // The first .layer() call is the OUTERMOST wrap and runs FIRST at
+    // request time: A -> B -> handler, so the unwinding order tags the
+    // header "A,B" (see docs/middleware.md for why).
+    r.layer(tag_layer("A"))
+    r.layer(tag_layer("B"))
+    r.get("/x", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, "base"))!!
+
+    // @then composes two middlewares into ONE — same net effect as two
+    // separate .layer() calls, useful as a reusable stack.
+    mut r2 = Router.new()
+    r2.layer(tag_layer("C").then(tag_layer("D")))
+    r2.get("/y", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, "base"))!!
+    r.nest("/composed", r2)!!
+
+    // ratelimit: a small burst, then 429 + Retry-After — try it twice fast.
+    mut r3 = Router.new()
+    r3.layer(ratelimit(RateLimit.new(2, 1.0)))
+    r3.get("/limited", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, "ok"))!!
+    r.nest("/rl", r3)!!
+
+    r
+}
+
+/// Canonical production shape (serving.md) — compile-checked, never called.
+/// See examples/README.md for why `main()` below drives the loop by hand.
+fn production_main() Net Time Detach -> () {
+    consume listener = TcpListener.bind(SocketAddr.from_str("0.0.0.0:18085")!!)!!
+    serve_router(listener, build_router(), ServerPolicy.new())
+}
+
+fn main() Net Time Detach -> () {
+    ro app = build_router()
+    supervised {
+        spawn {
+            consume listener = TcpListener.bind(SocketAddr.from_str("0.0.0.0:18085")!!)!!
+            while true {
+                match listener.accept() {
+                    Ok(consume stream) => { ro _ = handle_connection_router(stream, app) }
+                    Err(_) => ()
+                }
+            }
+        }
+    }
+}

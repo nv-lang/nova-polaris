@@ -99,6 +99,8 @@ route-catch-all `{*param}`; `serve_path(fs, cfg, path, req)` — низкоур�
 
 ## Связанные документы
 
+**Полный пример:** [`examples/06-static-site`](../examples/06-static-site) — встроенные файлы, index-фолбэк, Cache-Control, реально запущенные.
+
 - [routing.md](routing.ru.md) — шаблон catch-all `{*path}`, который ожидает `static_handler`
 - [handlers-response.md](handlers-response.ru.md) — `ServerResponse`, заголовки
 - [`src/static.nv`](../src/static.nv), [`src/static_test.nv`](../src/static_test.nv)

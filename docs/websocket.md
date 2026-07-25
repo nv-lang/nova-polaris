@@ -118,6 +118,8 @@ need to override the echo).
 
 ## Related documents
 
+**Full example:** [`examples/08-websocket-echo`](../examples/08-websocket-echo) — a real RFC 6455 handshake + echo loop over a live socket.
+
 - [handlers-response.md](handlers-response.md) — `FromRequest`, the protocol `WebSocketUpgrade` implements
 - [errors.md](errors.md) — `HttpError` from a failed upgrade
 - [`src/ws/`](../src/ws), [`src/ws_upgrade.nv`](../src/ws_upgrade.nv), [`src/ws_upgrade_test.nv`](../src/ws_upgrade_test.nv)
