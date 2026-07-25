@@ -1,0 +1,120 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Polaris example 05 — auth: Basic + Bearer/JWT, a session cookie, and a
+// public/private zone split via `nest` + `.layer()`.
+// By way of: axum's `jwt` example, the FastAPI OAuth2/security tutorial.
+
+module main
+
+import polaris.{Router, ServerRequest, ServerResponse, Bearer, BasicAuth, JwtAuth, JwtClaims, require_jwt}
+import polaris.{MemorySessionStore, SessionConfig, session_layer}
+import polaris.net.{ServerPolicy}
+import polaris.serve.{serve_router, handle_connection_router}
+import http.{StatusCode, HttpError}
+import std.net.{TcpListener, SocketAddr}
+import std.encoding.serde.{Deserialize}
+import std.encoding.json.{JsonValue, Json}
+import std.crypto.jwt.{Jwt}
+
+fn jwt_secret() -> []u8 => "example-secret-do-not-use-in-prod".bytes()
+
+// [M-example-fixed-clock]: `require_jwt`/`JwtAuth.claims_at` both take an
+// explicit clock closure (`fn() -> u64`, no effect row — see docs/auth.md)
+// rather than the `Time` effect, precisely so a `Handler`'s own effect-free
+// signature stays untouched. A real service threads a real wall clock in
+// through this same shape; this example fixes it far in the future so an
+// unexpired demo token never needs re-minting.
+fn demo_now() -> u64 => 4_000_000_000
+
+#serde(allow_unknown)
+#impl(Deserialize)
+type AuthClaims value { ro sub str }
+
+fn mint_token(sub str) -> str {
+    mut fields HashMap[str, JsonValue] = HashMap[str, JsonValue].new()
+    fields.insert("sub", JsonValue.str(sub))
+    fields.insert("exp", JsonValue.num(5_000_000_000.0))
+    Jwt.encode_hs256(jwt_secret(), JsonValue.object(fields))
+}
+
+fn build_router() Time -> Router {
+    ro auth = JwtAuth.new(jwt_secret())
+
+    // ── public zone: no auth at all ────────────────────────────────────
+    mut r = Router.new()
+    r.get("/public", fn(req ServerRequest) -> ServerResponse =>
+        ServerResponse.text(StatusCode.OK, "public"))!!
+
+    // A "login" endpoint that mints a JWT for the demo — Polaris verifies
+    // tokens (`JwtAuth`/`require_jwt`), it does not itself provide a login
+    // flow; a real service's own auth logic (password check, etc.) lives
+    // here instead of this one-line stand-in.
+    r.get("/login/{user}", fn(req ServerRequest) -> ServerResponse {
+        ro user = req.param("user") ?? "anonymous"
+        ServerResponse.text(StatusCode.OK, mint_token(user))
+    })!!
+
+    // BasicAuth: decode `Authorization: Basic base64(user:pass)` by hand —
+    // no middleware needed, just the extractor.
+    r.get("/basic", fn(req ServerRequest) -> ServerResponse {
+        match BasicAuth.from_request(req) {
+            Ok(a)  => ServerResponse.text(StatusCode.OK, "welcome, ${a.user()}")
+            Err(e) => e.into_response()
+        }
+    })!!
+
+    // Bearer: read the raw token, no verification (contrast with /private below).
+    r.get("/bearer", fn(req ServerRequest) -> ServerResponse {
+        match Bearer.from_request(req) {
+            Ok(b)  => ServerResponse.text(StatusCode.OK, "token=${b.token()}")
+            Err(e) => e.into_response()
+        }
+    })!!
+
+    // session_layer: a fresh session id + Set-Cookie on the first hit, the
+    // same id (no new Set-Cookie) on every request that echoes the cookie
+    // back.
+    mut sess_r = Router.new()
+    mut store = MemorySessionStore.new(600_000)
+    ro cfg = SessionConfig.new().with_cookie_name("sess")
+    sess_r.layer(session_layer(store, cfg, demo_now, fn() -> str => "sess-${demo_now()}"))
+    sess_r.get("/whoami", fn(req ServerRequest) -> ServerResponse {
+        ro sid = req.param("session_id") ?? "?"
+        ServerResponse.text(StatusCode.OK, "session=${sid}")
+    })!!
+    r.nest("/session", sess_r)!!
+
+    // ── private zone: every route nested here requires a valid JWT ──────
+    mut priv_r = Router.new()
+    priv_r.layer(require_jwt(auth, demo_now))
+    priv_r.get("/me", fn(req ServerRequest) -> ServerResponse {
+        match auth.claims_at[AuthClaims](req, demo_now()) {
+            Ok(c)  => ServerResponse.text(StatusCode.OK, "sub=${c.claims().sub}")
+            Err(e) => e.into_response()
+        }
+    })!!
+    r.nest("/private", priv_r)!!
+
+    r
+}
+
+/// Canonical production shape (serving.md) — compile-checked, never called.
+/// See examples/README.md for why `main()` below drives the loop by hand.
+fn production_main() Net Time Detach -> () {
+    consume listener = TcpListener.bind(SocketAddr.from_str("0.0.0.0:18086")!!)!!
+    serve_router(listener, build_router(), ServerPolicy.new())
+}
+
+fn main() Net Time Detach -> () {
+    ro app = build_router()
+    supervised {
+        spawn {
+            consume listener = TcpListener.bind(SocketAddr.from_str("0.0.0.0:18086")!!)!!
+            while true {
+                match listener.accept() {
+                    Ok(consume stream) => { ro _ = handle_connection_router(stream, app) }
+                    Err(_) => ()
+                }
+            }
+        }
+    }
+}

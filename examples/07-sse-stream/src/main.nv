@@ -1,0 +1,67 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Polaris example 07 — sse-stream: a live ticker over Server-Sent Events,
+// via a pull-based `StreamBody` producer (`stream_body(f)`), not a
+// pre-built finite chunk list.
+// By way of: axum's `sse` example.
+
+module main
+
+import polaris.{Router, ServerRequest, ServerResponse, StreamBody, stream_body, sse_event}
+import polaris.net.{ServerPolicy}
+import polaris.serve.{serve_router, handle_connection_router}
+import http.{StatusCode}
+import std.net.{TcpListener, SocketAddr}
+
+// `stream_body(f)` wraps a closure `fn() -> Option[[]u8]` — called once per
+// chunk, `None` ends the stream. This ticker counts down from 5 and emits
+// one `tick` SSE event per call, then a final `done` event, then ends —
+// the live-socket connection driver writes each chunk with its own
+// `write_all` as it is produced (see docs/serving.md#streaming-and-sse);
+// `serve_once` (the docs' own socket-free tests) instead drains a producer
+// like this one eagerly into a single buffer.
+fn ticker(remaining int) -> StreamBody {
+    mut n = remaining
+    stream_body(fn() -> Option[[]u8] {
+        if n > 0 {
+            ro chunk = sse_event("tick", "${n}")
+            n -= 1
+            Some(chunk)
+        } else if n == 0 {
+            n -= 1 // one extra call emits the closing event, then truly ends
+            Some(sse_event("done", "bye"))
+        } else {
+            None
+        }
+    })
+}
+
+fn build_router() -> Router {
+    mut r = Router.new()
+    r.get("/events", fn(req ServerRequest) -> ServerResponse =>
+        ServerResponse.sse(ticker(5)))!!
+    r.get("/health", fn(req ServerRequest) -> ServerResponse =>
+        ServerResponse.text(StatusCode.OK, "ok"))!!
+    r
+}
+
+/// Canonical production shape (serving.md) — compile-checked, never called.
+/// See examples/README.md for why `main()` below drives the loop by hand.
+fn production_main() Net Time Detach -> () {
+    consume listener = TcpListener.bind(SocketAddr.from_str("0.0.0.0:18088")!!)!!
+    serve_router(listener, build_router(), ServerPolicy.new())
+}
+
+fn main() Net Detach -> () {
+    ro app = build_router()
+    supervised {
+        spawn {
+            consume listener = TcpListener.bind(SocketAddr.from_str("0.0.0.0:18088")!!)!!
+            while true {
+                match listener.accept() {
+                    Ok(consume stream) => { ro _ = handle_connection_router(stream, app) }
+                    Err(_) => ()
+                }
+            }
+        }
+    }
+}

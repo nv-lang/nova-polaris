@@ -7,3 +7,4 @@
 */*.pdb
 */*.ilk
 */target/
+*/main.gc.log

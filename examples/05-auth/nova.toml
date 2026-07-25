@@ -1,0 +1,10 @@
+# nova.toml — Polaris example: polaris-example-05-auth
+
+[package]
+name = "polaris-example-05-auth"
+version = "0.1.0"
+description = "Basic/Bearer/JWT auth, sessions, public/private zones"
+
+[dependencies]
+polaris = { path = "../.." }
+http = { path = "../../../nova-http" }

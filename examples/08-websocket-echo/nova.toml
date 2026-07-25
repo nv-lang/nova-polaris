@@ -1,0 +1,10 @@
+# nova.toml — Polaris example: polaris-example-08-websocket-echo
+
+[package]
+name = "polaris-example-08-websocket-echo"
+version = "0.1.0"
+description = "WebSocket upgrade + echo loop"
+
+[dependencies]
+polaris = { path = "../.." }
+http = { path = "../../../nova-http" }

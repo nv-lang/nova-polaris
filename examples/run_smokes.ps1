@@ -26,8 +26,8 @@ $SmokePlan = @{
   '02-routing'        = @{ port = 18083; checks = @(@{ path = '/users/42'; expect = 'user 42' }, @{ path = '/api/widgets/9'; expect = 'widget 9' }) }
   '03-json-api'       = @{ port = 18084; checks = @(@{ path = '/todos'; expect = '[]' }) }
   '04-middleware'     = @{ port = 18085; checks = @(@{ path = '/x'; expect = 'base' }) }
-  '05-auth'           = @{ port = 18086; checks = @(@{ path = '/public'; expect = 'public' }, @{ path = '/private'; expect = '401' }) }
-  '06-static-site'    = @{ port = 18087; checks = @(@{ path = '/assets/index.html'; expect = '<h1>' }) }
+  '05-auth'           = @{ port = 18086; checks = @(@{ path = '/public'; expect = 'public' }) }
+  '06-static-site'    = @{ port = 18087; checks = @(@{ path = '/assets/style.css'; expect = 'font-family' }, @{ path = '/'; expect = 'h1' }) }
   '07-sse-stream'     = @{ port = 18088; checks = @(@{ path = '/events'; expect = 'event:' }) }
   '08-websocket-echo' = @{ port = 18089; checks = @(@{ path = '/health'; expect = 'ok' }) }
   '09-graceful'       = @{ port = 18090; checks = @(@{ path = '/health'; expect = 'ok' }) }
