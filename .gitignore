@@ -24,3 +24,9 @@ nova.local.toml
 # 2026-07-23) — `cargo build --release --target-dir <this>/target-cli`,
 # built straight from nova main's own sources; not the repo's own artifact.
 target-cli/
+
+# Machine-local nova.exe build (Plan 222 Ф.A extraction agent, 2026-07-25) —
+# `cargo build --release --target-dir <this>/.pbuild`, built straight from
+# nova main's own sources; not the repo's own artifact (mirrors target-cli/
+# above).
+.pbuild/

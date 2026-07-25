@@ -26,5 +26,10 @@ src = "src"
 # D420: релизная форма — git+semver (теги vX.Y.Z, caret); nova.lock фиксирует
 # тег+commit. Локальная разработка — ТОЛЬКО через некоммитимый nova.local.toml
 # (закоммиченный [replace] ломает чистый клон, E_REPLACE_IN_MANIFEST).
+#
+# `compress` (Ф.A-1, 2026-07-25): `middleware/compress.nv` (gzip response
+# compression, migrated from nova-http) imports it directly — same
+# leaf-dependency shape as `http`'s own `compress` dep (Plan 205 Ф.2).
 [dependencies]
 http = { git = "https://github.com/nv-lang/nova-http", version = "0.1" }
+compress = { git = "https://github.com/nv-lang/nova-compress", version = "0.1" }
