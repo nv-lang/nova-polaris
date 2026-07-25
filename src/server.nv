@@ -465,7 +465,7 @@ export fn sse_event(event str, data str) -> []u8 {
 /// (network-derived) header values go through `headers().insert(n, v)?` directly.
 #stable(since = "0.1")
 export fn ServerResponse mut @header(name str, value str) -> @ {
-    @headers.insert(name, value)!!
+    if Err(_) = @headers.insert(name, value) { panic("header: invariant — caller-authored name/value must be valid (network-derived values go through headers().insert(n, v)?)") }
 }
 
 /// Copy with a REPLACED fixed body (`with_*` = NEW value, D117) — status,

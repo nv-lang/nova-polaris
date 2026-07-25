@@ -310,7 +310,7 @@ export fn CookieJar.from_request(req ServerRequest) -> Result[CookieJar, HttpErr
 /// (server.nv). Chainable (D409).
 #stable(since = "0.1")
 export fn ServerResponse mut @set_cookie(c SetCookie) -> @ {
-    @headers.append("Set-Cookie", c.serialize())!!
+    if Err(_) = @headers.append("Set-Cookie", c.serialize()) { panic("set_cookie: invariant — literal header name is valid") }
 }
 
 // ── Sessions skeleton (Ф.3) ────────────────────────────────────────────────
