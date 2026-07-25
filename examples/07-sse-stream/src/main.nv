@@ -8,7 +8,7 @@ module main
 
 import polaris.{Router, ServerRequest, ServerResponse, StreamBody, stream_body, sse_event}
 import polaris.net.{ServerPolicy}
-import polaris.serve.{serve_router, handle_connection_router}
+import polaris.serve.{serve_router}
 import polaris.{StatusCode}
 import std.net.{TcpListener, SocketAddr}
 
@@ -44,24 +44,15 @@ fn build_router() -> Router {
     r
 }
 
-/// Canonical production shape (serving.md) — compile-checked, never called.
-/// See examples/README.md for why `main()` below drives the loop by hand.
-fn production_main() Net Time Detach -> () {
-    consume listener = TcpListener.bind(SocketAddr.from_str("0.0.0.0:18088")!!)!!
-    serve_router(listener, build_router(), ServerPolicy.new())
-}
-
-fn main() Net Detach -> () {
+/// Canonical production shape (serving.md/overview.md): `main` IS the accept
+/// loop, no `supervised { spawn { ... } }` wrapper needed — main-body runs as
+/// its own fiber, so a blocking `serve_router` call works directly. Streaming
+/// works the same way through `serve_router`'s own connection driver
+/// (`polaris.net.serve_connection`'s `write_response_keepalive` checks
+/// `resp.is_streaming()`) as it does over the single-shot
+/// `handle_connection_router` — no special-casing needed here.
+fn main() Net Time Detach -> () {
     ro app = build_router()
-    supervised {
-        spawn {
-            consume listener = TcpListener.bind(SocketAddr.from_str("0.0.0.0:18088")!!)!!
-            while true {
-                match listener.accept() {
-                    Ok(consume stream) => { ro _ = handle_connection_router(stream, app) }
-                    Err(_) => ()
-                }
-            }
-        }
-    }
+    consume listener = TcpListener.bind(SocketAddr.from_str("0.0.0.0:18088")!!)!!
+    serve_router(listener, app, ServerPolicy.new())
 }

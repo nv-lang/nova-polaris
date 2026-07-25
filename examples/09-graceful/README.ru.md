@@ -31,21 +31,18 @@ curl http://localhost:18090/log      # background task ran
 ## Что здесь реально, а что нет (прочитай это)
 
 - **`BackgroundTasks`** полностью реальны и живы: собственный драйвер
-  соединения `handle_connection` — используемый каждым примером этого
-  набора, включая `main()` этого — вызывает `@drain()` сразу после записи
-  байтов ответа, точно как это делал бы полный accept-цикл `serve_router`
+  соединения `serve_router` (`polaris.net.serve_connection`) вызывает
+  `@drain()` сразу после записи байтов ответа
   (см. [`docs/serving.ru.md`](../../docs/serving.ru.md#фоновые-задачи)).
 - Ручки **`ServerPolicy`** (admission control `max_inflight`, дедлайны,
-  `max_body_bytes`) реальны и задокументированы, но `/policy` выше только
-  СТРОИТ и ЧИТАЕТ значение — оно никогда не привязано к живому listener'у
-  в этом примере, потому что `serve_router` (accept-цикл, который реально
-  его применяет) не линкуется на этом снимке тулчейна — см.
-  [`examples/README.ru.md`](../README.ru.md). `production_main()`
-  (компилируется, не вызывается) показывает точно, как настоящий
-  `ServerPolicy` подключается.
+  `max_body_bytes`) здесь тоже реальны и живы: `/policy` выше СТРОИТ и ЧИТАЕТ
+  отдельное значение только для печати, но `main()` ниже подключает ТУ ЖЕ
+  настроенную политику (`max_inflight(64)`) в настоящий accept-цикл
+  `serve_router` — так что отчёт `/policy` — это ровно то, что управляет
+  живым сокетом, а не просто иллюстрация.
 - **recover-500** (пойманная паника хендлера, отвечающая `500` по
-  `policy.panic_response()`) нуждается в том же пути `serve_router`/
-  `serve_connection` — здесь вживую не исполняется по той же причине.
+  `policy.panic_response()`) точно так же жив через тот же accept-цикл
+  `serve_router`/`serve_connection`, который крутит `main()` этого примера.
 - **Graceful shutdown** (дожидание фоновых задач в полёте при завершении
   процесса) НИГДЕ в Polaris пока не реализован — см.
   [`docs/roadmap.ru.md`](../../docs/roadmap.ru.md#graceful-shutdown-фоновых-задач).
@@ -57,4 +54,4 @@ curl http://localhost:18090/log      # background task ran
 - [`docs/serving.ru.md`](../../docs/serving.ru.md) — `ServerPolicy`, accept-цикл, фоновые задачи, потоки
 - [`docs/roadmap.ru.md`](../../docs/roadmap.ru.md) — что запланировано, но не реализовано (graceful shutdown и другое)
 
-[English](README.md) · зачем пара `main()`/`production_main()` — в [`examples/README.ru.md`](../README.ru.md).
+[English](README.md) · канонический вид `main()` через `serve_router` — в [`examples/README.ru.md`](../README.ru.md).

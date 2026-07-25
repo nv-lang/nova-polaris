@@ -28,18 +28,14 @@ curl http://localhost:18082/
 
 ## A note on `main()`'s shape
 
-`main()` drives its own `TcpListener.accept()` loop through the low-level
-`handle_connection_router` (one request per connection, no keep-alive) inside
-a `supervised { spawn { ... } }` block — accepting on the bootstrap fiber
-directly parks invalidly (`nova_sched_park: invalid scope/slot`), so the
-accept loop always needs to run inside a spawned fiber. `production_main()`
-(compiled, never called) shows the *canonical* shape from
-[`docs/serving.md`](../../docs/serving.md) — `serve_router` +
-`ServerPolicy` (keep-alive, deadlines, admission control) — which currently
-fails to *link* in this toolchain snapshot (`undefined symbol: nova_fn_hook`,
-traced to the recover-500 panic-hook plumbing `serve_router` builds on, not
-to anything in this example or in Polaris' routing/handler code). Every
-example in this set follows the same two-function pattern; see the top-level
+`main()` is the canonical shape [`docs/serving.md`](../../docs/serving.md)/
+[`docs/overview.md`](../../docs/overview.md#minimal-server) teach: bind, then
+one call to `serve_router(listener, app, ServerPolicy.new())` — the full
+accept loop with keep-alive, deadlines, body caps and admission control, all
+from `ServerPolicy`. No `supervised { spawn { ... } }` wrapper around it:
+`main`'s own body already runs as its own fiber, so the blocking
+`serve_router` call works directly here. Every example in this set follows
+the same one-function pattern; see the top-level
 [`examples/README.md`](../README.md) for the one shared explanation.
 
 ## Related documentation

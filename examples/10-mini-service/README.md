@@ -64,4 +64,4 @@ after-release** candidate, not this example's job.
 
 - [`docs/handlers-response.md`](../../docs/handlers-response.md), [`docs/auth.md`](../../docs/auth.md), [`docs/middleware.md`](../../docs/middleware.md), [`docs/static-files.md`](../../docs/static-files.md), [`docs/serving.md`](../../docs/serving.md) — every piece this example composes
 
-[Русский](README.ru.md) · see [`examples/README.md`](../README.md) for why `main()`/`production_main()` come in a pair.
+[Русский](README.ru.md) · see [`examples/README.md`](../README.md) for `main()`'s canonical `serve_router` shape.

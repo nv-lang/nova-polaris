@@ -43,4 +43,4 @@ body size, duration).
 - [`docs/middleware.md`](../../docs/middleware.md) — the canon `middleware(...)` form, `@then`, `nest`+`.layer()`
 - [`docs/batteries.md`](../../docs/batteries.md) — `log`, `ratelimit`, plus `cors`/`compress`
 
-[Русский](README.ru.md) · see [`examples/README.md`](../README.md) for why `main()`/`production_main()` come in a pair.
+[Русский](README.ru.md) · see [`examples/README.md`](../README.md) for `main()`'s canonical `serve_router` shape.

@@ -7,7 +7,7 @@ module main
 
 import polaris.{Router, ServerRequest, ServerResponse, Handler, Middleware, middleware}
 import polaris.net.{ServerPolicy}
-import polaris.serve.{serve_router, handle_connection_router}
+import polaris.serve.{serve_router}
 import polaris.middleware.log.{Log, logger}
 import polaris.middleware.ratelimit.{RateLimit, ratelimit}
 import polaris.{StatusCode}
@@ -58,24 +58,11 @@ fn build_router() Time -> Router {
     r
 }
 
-/// Canonical production shape (serving.md) — compile-checked, never called.
-/// See examples/README.md for why `main()` below drives the loop by hand.
-fn production_main() Net Time Detach -> () {
-    consume listener = TcpListener.bind(SocketAddr.from_str("0.0.0.0:18085")!!)!!
-    serve_router(listener, build_router(), ServerPolicy.new())
-}
-
+/// Canonical production shape (serving.md/overview.md): `main` IS the accept
+/// loop, no `supervised { spawn { ... } }` wrapper needed — main-body runs as
+/// its own fiber, so a blocking `serve_router` call works directly.
 fn main() Net Time Detach -> () {
     ro app = build_router()
-    supervised {
-        spawn {
-            consume listener = TcpListener.bind(SocketAddr.from_str("0.0.0.0:18085")!!)!!
-            while true {
-                match listener.accept() {
-                    Ok(consume stream) => { ro _ = handle_connection_router(stream, app) }
-                    Err(_) => ()
-                }
-            }
-        }
-    }
+    consume listener = TcpListener.bind(SocketAddr.from_str("0.0.0.0:18085")!!)!!
+    serve_router(listener, app, ServerPolicy.new())
 }

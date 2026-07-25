@@ -64,4 +64,4 @@ curl 'http://localhost:18091/articles?limit=1&offset=0'   # пагинация
 
 - [`docs/handlers-response.ru.md`](../../docs/handlers-response.ru.md), [`docs/auth.ru.md`](../../docs/auth.ru.md), [`docs/middleware.ru.md`](../../docs/middleware.ru.md), [`docs/static-files.ru.md`](../../docs/static-files.ru.md), [`docs/serving.ru.md`](../../docs/serving.ru.md) — каждый кусок, который этот пример собирает воедино
 
-[English](README.md) · зачем пара `main()`/`production_main()` — в [`examples/README.ru.md`](../README.ru.md).
+[English](README.md) · канонический вид `main()` через `serve_router` — в [`examples/README.ru.md`](../README.ru.md).

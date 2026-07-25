@@ -29,21 +29,19 @@ really happened after the wire write, not before.
 
 ## What's real here, and what isn't (read this one)
 
-- **`BackgroundTasks`** is fully real and live: `handle_connection`'s own
-  connection driver — used by every example in this set, including this
-  one's `main()` — calls `@drain()` right after the response bytes are
-  written, exactly as the full `serve_router` accept loop would (see
+- **`BackgroundTasks`** is fully real and live: `serve_router`'s own
+  connection driver (`polaris.net.serve_connection`) calls `@drain()` right
+  after the response bytes are written (see
   [`docs/serving.md`](../../docs/serving.md#background-tasks)).
 - **`ServerPolicy`**'s knobs (`max_inflight` admission control, deadlines,
-  `max_body_bytes`) are real and documented, but `/policy` above only
-  *constructs and reads* one — it is never bound to a live listener in this
-  example, because `serve_router` (the accept loop that actually enforces
-  it) doesn't link in this toolchain snapshot — see
-  [`examples/README.md`](../README.md). `production_main()` (compiled,
-  never called) shows exactly how a real `ServerPolicy` gets wired in.
+  `max_body_bytes`) are real and live here too: `/policy` above
+  *constructs and reads* a standalone one for the printout, but `main()`
+  below binds the SAME tuned policy (`max_inflight(64)`) into the real
+  `serve_router` accept loop — so what `/policy` reports is exactly what
+  governs the live socket, not just illustrative.
 - **recover-500** (a caught handler panic answered as a `500` per
-  `policy.panic_response()`) needs the same `serve_router`/`serve_connection`
-  path — not exercised live here for the same reason.
+  `policy.panic_response()`) is likewise live through the same
+  `serve_router`/`serve_connection` accept loop this example's `main()` runs.
 - **Graceful shutdown** (draining in-flight background tasks on process
   exit) is **not implemented** anywhere in Polaris yet — see
   [`docs/roadmap.md`](../../docs/roadmap.md#background-task-graceful-shutdown).
@@ -55,4 +53,4 @@ really happened after the wire write, not before.
 - [`docs/serving.md`](../../docs/serving.md) — `ServerPolicy`, the accept loop, background tasks, streaming
 - [`docs/roadmap.md`](../../docs/roadmap.md) — what's planned but not implemented (graceful shutdown, among others)
 
-[Русский](README.ru.md) · see [`examples/README.md`](../README.md) for why `main()`/`production_main()` come in a pair.
+[Русский](README.ru.md) · see [`examples/README.md`](../README.md) for `main()`'s canonical `serve_router` shape.

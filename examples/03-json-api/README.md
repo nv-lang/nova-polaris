@@ -64,4 +64,4 @@ exercises for real.
 - [`docs/errors.md`](../../docs/errors.md) — `HttpError`, the `Result[T, HttpError]` blanket
 - [`docs/routing.md`](../../docs/routing.md) — `MethodRouter`
 
-[Русский](README.ru.md) · see [`examples/README.md`](../README.md) for why `main()`/`production_main()` come in a pair.
+[Русский](README.ru.md) · see [`examples/README.md`](../README.md) for `main()`'s canonical `serve_router` shape.
