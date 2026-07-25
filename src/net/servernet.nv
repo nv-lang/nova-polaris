@@ -96,7 +96,7 @@ export fn handle_connection(consume stream TcpStream, handler fn([]u8) -> Server
 // background work attached.
 fn run_background(bg Option[BackgroundTasks]) {
     match bg {
-        Some(tasks) => { mut t = tasks; t.drain() }
+        Some(mut tasks) => { tasks.drain() }
         None => ()
     }
 }

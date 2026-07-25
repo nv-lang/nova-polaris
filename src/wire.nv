@@ -229,8 +229,7 @@ fn drain_stream_to_bytes(resp ServerResponse) -> []u8 {
     mut buf = WriteBuffer.new()
     buf.write_bytes(serialize_response_head(resp))
     match resp.take_stream() {
-        Some(sb) => {
-            mut producer = sb
+        Some(mut producer) => {
             mut running = true
             while running {
                 match producer.next_chunk() {

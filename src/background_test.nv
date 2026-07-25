@@ -138,9 +138,8 @@ test "ServerResponse.background()/take_background(): round-trips the collector" 
     mut resp = ServerResponse.text(200, "ok")
     resp.background(bg)
     match resp.take_background() {
-        Some(tasks) => {
-            mut t = tasks
-            t.drain()
+        Some(mut tasks) => {
+            tasks.drain()
         }
         None => assert(false)
     }
