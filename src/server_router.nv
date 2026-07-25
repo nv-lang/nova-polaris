@@ -196,6 +196,7 @@ fn split_segments(s str) -> []str {
 }
 
 fn is_catchall_seg(seg str) -> bool => seg.starts_with("{*") && seg.ends_with("}")
+
 fn is_param_seg(seg str) -> bool => seg.starts_with("{") && seg.ends_with("}") && !is_catchall_seg(seg)
 
 fn extend_segs(base []str, extra str) -> []str {

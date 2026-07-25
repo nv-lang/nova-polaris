@@ -166,6 +166,7 @@ fn flat_deser_bool(cur Option[str]) -> Result[bool, DeError] {
         _       => Err(DeError.unexpected("bool", "str"))
     }
 }
+
 fn flat_deser_int(cur Option[str]) -> Result[int, DeError] {
     ro s = flat_need_cur(cur)?
     match s.to_int() {
@@ -173,6 +174,7 @@ fn flat_deser_int(cur Option[str]) -> Result[int, DeError] {
         Err(_) => Err(DeError.unexpected("int", "str"))
     }
 }
+
 fn flat_deser_uint(cur Option[str]) -> Result[u64, DeError] {
     ro s = flat_need_cur(cur)?
     match s.to_u64() {
@@ -180,6 +182,7 @@ fn flat_deser_uint(cur Option[str]) -> Result[u64, DeError] {
         Err(_) => Err(DeError.unexpected("uint", "str"))
     }
 }
+
 fn flat_deser_float(cur Option[str]) -> Result[f64, DeError] {
     ro s = flat_need_cur(cur)?
     match s.to_f64() {
@@ -200,14 +203,19 @@ export fn ParamsDeserializer.new(pairs [](str, str)) -> ParamsDeserializer => { 
 
 #stable(since = "0.1")
 export fn ParamsDeserializer mut @deser_bool()  -> Result[bool, DeError]  => flat_deser_bool(@cur)
+
 #stable(since = "0.1")
 export fn ParamsDeserializer mut @deser_int()   -> Result[int, DeError]   => flat_deser_int(@cur)
+
 #stable(since = "0.1")
 export fn ParamsDeserializer mut @deser_uint()  -> Result[u64, DeError]   => flat_deser_uint(@cur)
+
 #stable(since = "0.1")
 export fn ParamsDeserializer mut @deser_float() -> Result[f64, DeError]   => flat_deser_float(@cur)
+
 #stable(since = "0.1")
 export fn ParamsDeserializer mut @deser_str()   -> Result[str, DeError]  => flat_need_cur(@cur)
+
 #stable(since = "0.1")
 export fn ParamsDeserializer mut @deser_bytes() -> Result[[]u8, DeError] {
     ro s = flat_need_cur(@cur)?
@@ -216,6 +224,7 @@ export fn ParamsDeserializer mut @deser_bytes() -> Result[[]u8, DeError] {
 
 #stable(since = "0.1")
 export fn ParamsDeserializer mut @is_null() -> Result[bool, DeError] => Ok(@cur.is_none())
+
 #stable(since = "0.1")
 export fn ParamsDeserializer mut @is_str()  -> Result[bool, DeError] => Ok(true)
 
@@ -268,14 +277,19 @@ export fn QueryDeserializer.new(query str) -> QueryDeserializer => { pairs: pars
 
 #stable(since = "0.1")
 export fn QueryDeserializer mut @deser_bool()  -> Result[bool, DeError]  => flat_deser_bool(@cur)
+
 #stable(since = "0.1")
 export fn QueryDeserializer mut @deser_int()   -> Result[int, DeError]   => flat_deser_int(@cur)
+
 #stable(since = "0.1")
 export fn QueryDeserializer mut @deser_uint()  -> Result[u64, DeError]   => flat_deser_uint(@cur)
+
 #stable(since = "0.1")
 export fn QueryDeserializer mut @deser_float() -> Result[f64, DeError]   => flat_deser_float(@cur)
+
 #stable(since = "0.1")
 export fn QueryDeserializer mut @deser_str()   -> Result[str, DeError]  => flat_need_cur(@cur)
+
 #stable(since = "0.1")
 export fn QueryDeserializer mut @deser_bytes() -> Result[[]u8, DeError] {
     ro s = flat_need_cur(@cur)?
@@ -284,6 +298,7 @@ export fn QueryDeserializer mut @deser_bytes() -> Result[[]u8, DeError] {
 
 #stable(since = "0.1")
 export fn QueryDeserializer mut @is_null() -> Result[bool, DeError] => Ok(@cur.is_none())
+
 #stable(since = "0.1")
 export fn QueryDeserializer mut @is_str()  -> Result[bool, DeError] => Ok(true)
 

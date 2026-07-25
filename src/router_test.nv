@@ -13,6 +13,7 @@
 module polaris
 
 fn get_req(path str) -> []u8 => "GET ${path} HTTP/1.1\r\nHost: x\r\n\r\n".bytes()
+
 fn post_req(path str) -> []u8 => "POST ${path} HTTP/1.1\r\nHost: x\r\n\r\n".bytes()
 
 // ── precedence: static > param > catch-all (structural, not registration order) ─

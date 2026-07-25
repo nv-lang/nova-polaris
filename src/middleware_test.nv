@@ -167,6 +167,7 @@ test "middleware: MethodRouter's per-route 405 fallback IS wrapped by layers" {
 // fallback) is materialized at registration and wrapped too — middleware that
 // must see every method on a registered route (CORS preflight `OPTIONS`)
 // depends on it. Wire shape (405 + Allow) stays identical to the dispatch path.
+
 test "middleware: default 405 (no custom fallback) IS wrapped when layers exist" {
     mut r = Router.new()
     r.layer(mark("A"))

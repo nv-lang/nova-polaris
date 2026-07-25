@@ -150,6 +150,7 @@ fn default_panic_sink(line str) Io -> () {
 /// (`reject_with_503`-gated) — see `serve()`, `serve.nv`.
 #stable(since = "0.1")
 export fn ServerPolicy @max_inflight() -> int => @max_inflight
+
 #stable(since = "0.1")
 export fn ServerPolicy mut @max_inflight(n int) -> @ { @max_inflight = n }
 
@@ -157,6 +158,7 @@ export fn ServerPolicy mut @max_inflight(n int) -> @ { @max_inflight = n }
 /// just closed immediately with no bytes written.
 #stable(since = "0.1")
 export fn ServerPolicy @reject_with_503() -> bool => @reject_with_503
+
 #stable(since = "0.1")
 export fn ServerPolicy mut @reject_with_503(on bool) -> @ { @reject_with_503 = on }
 
@@ -165,6 +167,7 @@ export fn ServerPolicy mut @reject_with_503(on bool) -> @ { @reject_with_503 = o
 /// `Connection` header.
 #stable(since = "0.1")
 export fn ServerPolicy @max_requests_per_conn() -> int => @max_requests_per_conn
+
 #stable(since = "0.1")
 export fn ServerPolicy mut @max_requests_per_conn(n int) -> @ { @max_requests_per_conn = n }
 
@@ -173,6 +176,7 @@ export fn ServerPolicy mut @max_requests_per_conn(n int) -> @ { @max_requests_pe
 /// for that phase). Slowloris mitigation (deliverable 3).
 #stable(since = "0.1")
 export fn ServerPolicy @header_deadline() -> Duration => @header_deadline
+
 #stable(since = "0.1")
 export fn ServerPolicy mut @header_deadline(d Duration) -> @ { @header_deadline = d }
 
@@ -181,6 +185,7 @@ export fn ServerPolicy mut @header_deadline(d Duration) -> @ { @header_deadline 
 /// with `header_deadline`).
 #stable(since = "0.1")
 export fn ServerPolicy @read_deadline() -> Duration => @read_deadline
+
 #stable(since = "0.1")
 export fn ServerPolicy mut @read_deadline(d Duration) -> @ { @read_deadline = d }
 
@@ -189,6 +194,7 @@ export fn ServerPolicy mut @read_deadline(d Duration) -> @ { @read_deadline = d 
 /// the very-first-request timeout on a brand-new connection.
 #stable(since = "0.1")
 export fn ServerPolicy @idle_deadline() -> Duration => @idle_deadline
+
 #stable(since = "0.1")
 export fn ServerPolicy mut @idle_deadline(d Duration) -> @ { @idle_deadline = d }
 
@@ -196,6 +202,7 @@ export fn ServerPolicy mut @idle_deadline(d Duration) -> @ { @idle_deadline = d 
 /// — exceeding it is a `413 Payload Too Large` (deliverable 4).
 #stable(since = "0.1")
 export fn ServerPolicy @max_body_bytes() -> int => @max_body_bytes
+
 #stable(since = "0.1")
 export fn ServerPolicy mut @max_body_bytes(n int) -> @ { @max_body_bytes = n }
 
@@ -204,6 +211,7 @@ export fn ServerPolicy mut @max_body_bytes(n int) -> @ { @max_body_bytes = n }
 /// behavior yet, landing in a separate compiler window.
 #stable(since = "0.1")
 export fn ServerPolicy @panic_response() -> HandlerPanicResponse => @panic_response
+
 #stable(since = "0.1")
 export fn ServerPolicy mut @panic_response(v HandlerPanicResponse) -> @ { @panic_response = v }
 
@@ -217,6 +225,7 @@ export fn ServerPolicy mut @panic_sink(f fn(str) -> ()) -> @ { @panic_emit = f }
 /// `MultipartLimits.max_parts` (`server/multipart.nv`).
 #stable(since = "0.1")
 export fn ServerPolicy @max_multipart_parts() -> int => @multipart_limits.max_parts()
+
 #stable(since = "0.1")
 export fn ServerPolicy mut @max_multipart_parts(n int) -> @ {
     mut lim = @multipart_limits
@@ -228,6 +237,7 @@ export fn ServerPolicy mut @max_multipart_parts(n int) -> @ {
 /// `MultipartLimits.max_part_size`.
 #stable(since = "0.1")
 export fn ServerPolicy @max_multipart_part_size() -> int => @multipart_limits.max_part_size()
+
 #stable(since = "0.1")
 export fn ServerPolicy mut @max_multipart_part_size(n int) -> @ {
     mut lim = @multipart_limits
@@ -239,6 +249,7 @@ export fn ServerPolicy mut @max_multipart_part_size(n int) -> @ {
 /// `MultipartLimits.max_total`.
 #stable(since = "0.1")
 export fn ServerPolicy @max_multipart_total_bytes() -> int => @multipart_limits.max_total()
+
 #stable(since = "0.1")
 export fn ServerPolicy mut @max_multipart_total_bytes(n int) -> @ {
     mut lim = @multipart_limits

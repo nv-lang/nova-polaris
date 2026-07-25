@@ -30,6 +30,7 @@ type NewArticle value { ro title str, ro body str }
 type NewUser value { ro username str, ro password str }
 
 fn jwt_secret() -> []u8 => "mini-service-demo-secret".bytes()
+
 fn demo_now() -> u64 => 4_000_000_000 // see examples/05-auth for why a fixed clock
 
 fn mint_token(username str) -> str {
@@ -71,6 +72,7 @@ fn articles_json(items Vec[Article], limit int, offset int) -> str {
 }
 
 fn not_found() -> ServerResponse => HttpError.new(Status(StatusCode.NOT_FOUND)).into_response()
+
 fn bad_request() -> ServerResponse => HttpError.new(Status(StatusCode.BAD_REQUEST)).into_response()
 
 fn about_page() -> EmbeddedDir =>

@@ -43,9 +43,11 @@ export type Frame value {
 /// reassembled by `http.ws.socket`, not here — this is the pure codec).
 #stable(since = "0.1")
 export fn Frame @fin() -> bool => @fin
+
 /// This frame's opcode.
 #stable(since = "0.1")
 export fn Frame @opcode() -> OpCode => @opcode
+
 /// Unmasked application payload bytes.
 #stable(since = "0.1")
 export fn Frame @payload() -> []u8 => @payload

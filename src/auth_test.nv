@@ -18,7 +18,6 @@ import std.crypto.jwt.{Jwt}
 import std.encoding.base64.{Base64}
 import std.encoding.json.{JsonValue}
 
-
 // ── helpers ────────────────────────────────────────────────────────────────
 
 fn get_req_h(path str, hname str, hval str) -> []u8 =>

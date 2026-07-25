@@ -137,15 +137,19 @@ fn ServerRequest @clone() -> ServerRequest =>
 /// Request method.
 #stable(since = "0.1")
 export fn ServerRequest @method() -> Method => @method
+
 /// Decoded request path (no query).
 #stable(since = "0.1")
 export fn ServerRequest @path() -> str => @path
+
 /// Raw request-target (path + optional "?query").
 #stable(since = "0.1")
 export fn ServerRequest @target() -> str => @target
+
 /// Request headers.
 #stable(since = "0.1")
 export fn ServerRequest @headers() -> HeaderMap => @headers
+
 /// Buffered request body bytes.
 #stable(since = "0.1")
 export fn ServerRequest @body_bytes() -> []u8 => @body

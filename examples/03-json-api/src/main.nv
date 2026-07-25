@@ -27,6 +27,7 @@ type NewTodo value { ro title str }
 type TodoUpdate value { ro title str, ro done bool }
 
 fn not_found() -> ServerResponse => HttpError.new(Status(StatusCode.NOT_FOUND)).into_response()
+
 fn bad_request() -> ServerResponse => HttpError.new(Status(StatusCode.BAD_REQUEST)).into_response()
 
 // One line of hand-built JSON per `Todo` — sidesteps a currently-open

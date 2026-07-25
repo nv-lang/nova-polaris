@@ -62,6 +62,7 @@ import std.encoding.base64.{Base64}
 import std.encoding.json.{JsonValue}
 import std.encoding.serde.{Deserialize, JsonDeserializer}
 import std.runtime.sync.{Mutex}
+
 // Not referenced HERE — pulls `time.duration` into this CU so the checker can
 // annotate `Timestamp.now()` inside std jwt.nv's `validate_hs256` (compiled as
 // part of this CU via the `std.crypto.jwt` import above; without this the
@@ -125,6 +126,7 @@ export type BasicAuth value { priv user str, priv pass str }
 /// The user-id (property accessor, D117).
 #stable(since = "0.1")
 export fn BasicAuth @user() -> str => @user
+
 /// The password (property accessor, D117).
 #stable(since = "0.1")
 export fn BasicAuth @pass() -> str => @pass
@@ -452,6 +454,7 @@ export fn SessionConfig @with_ttl_ms(ttl u64) -> SessionConfig =>
 /// Cookie name (property accessor, D117).
 #stable(since = "0.1")
 export fn SessionConfig @cookie_name() -> str => @cookie_name
+
 /// Session TTL in milliseconds (property accessor, D117).
 #stable(since = "0.1")
 export fn SessionConfig @ttl_ms() -> u64 => @ttl_ms

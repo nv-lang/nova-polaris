@@ -42,16 +42,19 @@ import std.testing.handlers as th
 // this module can't see those module-private peers, so its own copies) ────
 
 fn get_req(path str) -> []u8 => "GET ${path} HTTP/1.1\r\nHost: x\r\n\r\n".bytes()
+
 fn post_req(path str, body str) -> []u8 =>
     "POST ${path} HTTP/1.1\r\nHost: x\r\nContent-Length: ${body.byte_len()}\r\n\r\n${body}".bytes()
 fn get_req_h(path str, hname str, hval str) -> []u8 =>
     "GET ${path} HTTP/1.1\r\nHost: x\r\n${hname}: ${hval}\r\n\r\n".bytes()
 
 fn wire_str(wire []u8) -> str => unsafe { wire.to_str_unchecked() }
+
 fn status_line(wire []u8) -> str {
     ro s = wire_str(wire)
     match s.find("\r\n") { Some(i) => s[0..i], None => s }
 }
+
 fn hdr(resp ServerResponse, name str) -> str {
     match resp.headers.get(name) {
         Some(hv) => match hv.to_str() { Ok(s) => s, Err(_) => "" }
@@ -236,6 +239,7 @@ type Widget value { ro name str }
 // inside a plain `Handler` (the arity-overload sugar that would let a
 // handler take `PathParam[T]`/`Query[T]`/`Json[T]` as bare fn PARAMETERS is
 // NOT implemented — see roadmap.md).
+
 test "handlers-response: typed extractors — PathParam/Query/Json via FromRequest" {
     mut r = Router.new()
     r.post("/widgets/{id}", fn(req ServerRequest) -> ServerResponse {
