@@ -311,6 +311,8 @@ overload is built on internally — prefer the validated forms in new code).
 
 ## Related documents
 
+**Full example:** [`examples/03-json-api`](../examples/03-json-api) — `Json[T]`/`ServerResponse.json`/`IntoResponse` in a real REST CRUD service.
+
 - [routing.md](routing.md) — where `Handler`s get registered
 - [middleware.md](middleware.md) — wrapping a `Handler`
 - [errors.md](errors.md) — `HttpError`'s own status/body mapping in full

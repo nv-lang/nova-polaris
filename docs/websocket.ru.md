@@ -124,6 +124,8 @@ test "websocket: a non-upgrade request is rejected before any socket work" {
 
 ## Связанные документы
 
+**Полный пример:** [`examples/08-websocket-echo`](../examples/08-websocket-echo) — настоящий RFC 6455 handshake + echo-цикл по живому сокету.
+
 - [handlers-response.md](handlers-response.ru.md) — `FromRequest`, протокол, который реализует `WebSocketUpgrade`
 - [errors.md](errors.ru.md) — `HttpError` от неудавшегося апгрейда
 - [`src/ws/`](../src/ws), [`src/ws_upgrade.nv`](../src/ws_upgrade.nv), [`src/ws_upgrade_test.nv`](../src/ws_upgrade_test.nv)

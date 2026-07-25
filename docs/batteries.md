@@ -153,6 +153,8 @@ the middleware carries a `Time` effect row (the bucket refills against
 
 ## Related documents
 
+**Full example:** [`examples/04-middleware`](../examples/04-middleware) — `log`+`ratelimit` running for real (see also [`10-mini-service`](../examples/10-mini-service) for `log` in a bigger service).
+
 - [middleware.md](middleware.md) — the `Middleware`/`Router.@layer` core these build on
 - [auth.md](auth.md) — `require_jwt`/`session_layer`, two more ready-made middlewares
 - [`src/middleware/`](../src/middleware) — full source + pin tests for all four

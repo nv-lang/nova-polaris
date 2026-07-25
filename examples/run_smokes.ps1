@@ -30,8 +30,8 @@ $SmokePlan = @{
   '06-static-site'    = @{ port = 18087; checks = @(@{ path = '/assets/style.css'; expect = 'font-family' }, @{ path = '/'; expect = 'h1' }) }
   '07-sse-stream'     = @{ port = 18088; checks = @(@{ path = '/events'; expect = 'event:' }) }
   '08-websocket-echo' = @{ port = 18089; checks = @(@{ path = '/health'; expect = 'ok' }) }
-  '09-graceful'       = @{ port = 18090; checks = @(@{ path = '/health'; expect = 'ok' }) }
-  '10-mini-service'   = @{ port = 18091; checks = @(@{ path = '/health'; expect = 'ok' }) }
+  '09-graceful'       = @{ port = 18090; checks = @(@{ path = '/health'; expect = 'ok' }, @{ path = '/policy'; expect = 'max_inflight' }) }
+  '10-mini-service'   = @{ port = 18091; checks = @(@{ path = '/health'; expect = 'ok' }, @{ path = '/articles'; expect = '[]' }) }
 }
 
 function Check-One {

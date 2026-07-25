@@ -187,6 +187,8 @@ generic-захвата в кодогене для этой формы).
 
 ## Связанные документы
 
+**Полный пример:** [`examples/05-auth`](../examples/05-auth) — Basic/Bearer/JWT/сессии, разделение публичной/приватной зоны и настоящий `/login`, чеканящий токен, реально запущенные (см. также [`10-mini-service`](../examples/10-mini-service) — JWT-авторизация в сервисе побольше).
+
 - [handlers-response.md](handlers-response.ru.md) — `FromRequest`, протокол, который реализует каждый extractor здесь
 - [middleware.md](middleware.ru.md) — ядро `Middleware`, на котором построены `require_jwt`/`session_layer`
 - [errors.md](errors.ru.md) — как `401`/другая `HttpError` получает форму на проводе

@@ -159,6 +159,8 @@ test "batteries: ratelimit — burst within capacity passes, then 429 + Retry-Af
 
 ## Связанные документы
 
+**Полный пример:** [`examples/04-middleware`](../examples/04-middleware) — `log`+`ratelimit` реально запущенные (см. также [`10-mini-service`](../examples/10-mini-service) — `log` в сервисе побольше).
+
 - [middleware.md](middleware.ru.md) — ядро `Middleware`/`Router.@layer`, на котором это построено
 - [auth.md](auth.ru.md) — `require_jwt`/`session_layer`, ещё два готовых middleware
 - [`src/middleware/`](../src/middleware) — полный исходник + pin-тесты для всех четырёх

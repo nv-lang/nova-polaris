@@ -184,6 +184,8 @@ layer, once generic-capture codegen is proven safe for it).
 
 ## Related documents
 
+**Full example:** [`examples/05-auth`](../examples/05-auth) — Basic/Bearer/JWT/sessions, a public/private zone split, and a real `/login` token-minting endpoint, running for real (see also [`10-mini-service`](../examples/10-mini-service) for JWT auth in a bigger service).
+
 - [handlers-response.md](handlers-response.md) — `FromRequest`, the protocol every extractor here implements
 - [middleware.md](middleware.md) — the `Middleware` core `require_jwt`/`session_layer` build on
 - [errors.md](errors.md) — how a `401`/other `HttpError` gets its wire shape

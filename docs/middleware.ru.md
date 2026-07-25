@@ -135,6 +135,8 @@ middleware: небольшой конфиг-значение, метод-бил�
 
 ## Связанные документы
 
+**Полный пример:** [`examples/04-middleware`](../examples/04-middleware) — свой middleware, `@then`, порядок layers, `log`+`ratelimit`, реально запущенные.
+
 - [routing.md](routing.ru.md) — сами `Router.@route`/`@nest`
 - [batteries.md](batteries.ru.md) — cors/compress/log/ratelimit, все построены так же
 - [auth.md](auth.ru.md) — `require_jwt`/`session_layer`, ещё два middleware

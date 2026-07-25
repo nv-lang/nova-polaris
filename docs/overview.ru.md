@@ -109,6 +109,8 @@ fn overview_main() Net Time Detach -> () {
 
 ## Связанные документы
 
+**Полный пример:** [`examples/01-hello`](../examples/01-hello) — этот же сервер, реально запущенный; полный набор — [`examples/README.ru.md`](../examples/README.ru.md), от простого к сложному.
+
 - [`README.md`](../README.md) — питч пакета + установка
 - [`src/doc_samples_test.nv`](../src/doc_samples_test.nv) — все примеры кода
   этого набора доков, компилируемые и прогоняемые `nova test`

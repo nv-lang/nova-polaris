@@ -128,6 +128,8 @@ one level of nesting).
 
 ## Related documents
 
+**Full example:** [`examples/04-middleware`](../examples/04-middleware) — a custom middleware, `@then`, layer ordering, `log`+`ratelimit`, running for real.
+
 - [routing.md](routing.md) — `Router.@route`/`@nest` themselves
 - [batteries.md](batteries.md) — cors/compress/log/ratelimit, all built this way
 - [auth.md](auth.md) — `require_jwt`/`session_layer`, two more middlewares

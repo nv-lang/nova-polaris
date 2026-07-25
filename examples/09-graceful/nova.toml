@@ -1,0 +1,10 @@
+# nova.toml — Polaris example: polaris-example-09-graceful
+
+[package]
+name = "polaris-example-09-graceful"
+version = "0.1.0"
+description = "ServerPolicy limits, BackgroundTasks, panic recovery"
+
+[dependencies]
+polaris = { path = "../.." }
+http = { path = "../../../nova-http" }

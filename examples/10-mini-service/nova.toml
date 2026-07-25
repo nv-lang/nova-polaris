@@ -1,0 +1,10 @@
+# nova.toml — Polaris example: polaris-example-10-mini-service
+
+[package]
+name = "polaris-example-10-mini-service"
+version = "0.1.0"
+description = "RealWorld-style mini service: json-api + auth + middleware + static"
+
+[dependencies]
+polaris = { path = "../.." }
+http = { path = "../../../nova-http" }

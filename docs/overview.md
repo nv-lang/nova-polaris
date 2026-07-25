@@ -107,6 +107,8 @@ applications actually call. See [serving.md](serving.md).
 
 ## Related documents
 
+**Full example:** [`examples/01-hello`](../examples/01-hello) — this exact server, running for real; see [`examples/README.md`](../examples/README.md) for the full set, simplest to most complete.
+
 - [`README.md`](../README.md) — package pitch + install
 - [`src/doc_samples_test.nv`](../src/doc_samples_test.nv) — every code sample
   in this doc set, compiled and run by `nova test`

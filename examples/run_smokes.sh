@@ -31,8 +31,8 @@ declare -A SMOKE_PLAN=(
   [06-static-site]="18087|/assets/style.css:font-family|/:h1"
   [07-sse-stream]="18088|/events:event:"
   [08-websocket-echo]="18089|/health:ok"
-  [09-graceful]="18090|/health:ok"
-  [10-mini-service]="18091|/health:ok"
+  [09-graceful]="18090|/health:ok|/policy:max_inflight"
+  [10-mini-service]="18091|/health:ok|/articles:[]"
 )
 
 log() { printf '%s\n' "$*"; }

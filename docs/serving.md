@@ -166,6 +166,8 @@ process.
 
 ## Related documents
 
+**Full example:** [`examples/09-graceful`](../examples/09-graceful) — `ServerPolicy`'s knobs and `BackgroundTasks` running for real (see also [`01-hello`](../examples/01-hello) for the minimal accept-loop shape and [`07-sse-stream`](../examples/07-sse-stream) for streaming/SSE).
+
 - [handlers-response.md](handlers-response.md) — `ServerResponse`, the value `serve_router` ultimately writes
 - [errors.md](errors.md) — how a caught panic and `HttpError`s differ in shape
 - [roadmap.md](roadmap.md) — the graceful-shutdown deadline-drain for background tasks (not wired yet)

@@ -103,6 +103,8 @@ Polaris: keep your domain functions returning `Result[T, HttpError]`, keep
 
 ## Related documents
 
+**Full example:** [`examples/03-json-api`](../examples/03-json-api) — `HttpError`/`StatusCode` and the `Result[T, HttpError]` blanket, running for real.
+
 - [handlers-response.md](handlers-response.md) — `IntoResponse` in full, extractor failure modes
 - [auth.md](auth.md) — `401`s from Bearer/Basic/JWT extractors, same mapping
 - `HttpError`/`ErrorKind` themselves — [nova-http](https://github.com/nv-lang/nova-http)'s own `src/error.nv`

@@ -39,6 +39,12 @@ client, transport) is the [`http`](https://github.com/nv-lang/nova-http)
 package: Polaris depends on it, and it arrives transitively for most
 Polaris users.
 
+## Examples
+
+[`examples/`](examples/) — ten whole runnable applications, simplest to
+most complete, each its own package: `nova build --strict-effects` +
+actually run it. See [`examples/README.md`](examples/README.md).
+
 ## Documentation
 
 - [`docs/overview.md`](docs/overview.md) — what Polaris is, the minimal
