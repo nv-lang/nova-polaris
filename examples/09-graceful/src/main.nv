@@ -14,16 +14,22 @@ import std.net.{TcpListener, SocketAddr}
 
 // ── ServerPolicy: the accept-loop/connection knobs, as a value ──────────
 //
-// `policy_report()` demonstrates `ServerPolicy` as pure construction + fluent
-// tuning (the same thing docs/serving.md's own test does, socket-free) —
-// `main()` below binds the SAME tuned policy into a live `serve_router`
-// accept loop, so the admission-control/deadline/body-cap knobs it reports
-// here are exactly what governs the real socket, not just illustrative.
-fn policy_report() -> str {
-    ro p = ServerPolicy.new()
+// `tuned_policy()` is the ONE place the "tuned" knobs are set — `/policy`
+// below reports it, and `main()` binds the very same construction into the
+// live `serve_router` accept loop, so what `/policy` prints is exactly what
+// governs the real socket, not just illustrative (docs/serving.md's own
+// `ServerPolicy` test does the pure construction/fluent-tuning half,
+// socket-free).
+fn tuned_policy() -> ServerPolicy {
     mut q = ServerPolicy.new()
     q.max_inflight(64)
     q.max_body_bytes(4 * 1024 * 1024)
+    q
+}
+
+fn policy_report() -> str {
+    ro p = ServerPolicy.new()
+    ro q = tuned_policy()
     "defaults: max_inflight=${p.max_inflight()} reject_with_503=${p.reject_with_503()} max_requests_per_conn=${p.max_requests_per_conn()} max_body_bytes=${p.max_body_bytes()}\ntuned:    max_inflight=${q.max_inflight()} max_body_bytes=${q.max_body_bytes()}"
 }
 
@@ -65,7 +71,5 @@ fn build_router() -> Router {
 fn main() Net Time Detach -> () {
     ro app = build_router()
     consume listener = TcpListener.bind(SocketAddr.from_str("0.0.0.0:18090")!!)!!
-    mut policy = ServerPolicy.new()
-    policy.max_inflight(64)
-    serve_router(listener, app, policy)
+    serve_router(listener, app, tuned_policy())
 }
