@@ -538,8 +538,7 @@ export fn route_once(router Router, raw []u8) -> ServerResponse {
 #stable(since = "0.1")
 export fn route_once_with_multipart_limits(router Router, raw []u8, limits MultipartLimits) -> ServerResponse {
     match parse_request(raw) {
-        Ok(req0) => {
-            mut req = req0
+        Ok(mut req) => {
             req.multipart_limits(limits)
             router.dispatch(req)
         }

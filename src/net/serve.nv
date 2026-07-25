@@ -241,8 +241,7 @@ fn write_streaming_keepalive(mut s TcpStream, resp ServerResponse) Net -> Result
 fn write_stream_chunks_keepalive(mut s TcpStream, resp ServerResponse) Net -> Result[(), NetError] {
     match resp.take_stream() {
         None => Ok(())   // unreachable: caller checked @is_streaming()
-        Some(sb) => {
-            mut producer = sb
+        Some(mut producer) => {
             mut running = true
             mut result Result[(), NetError] = Ok(())
             while running {
@@ -305,8 +304,7 @@ export fn serve_connection(consume stream TcpStream, handler fn([]u8) -> ServerR
                     StepCloseErr  => { keep_going = false; final_result = Err(NetError.Closed) }
                 }
             }
-            EarlyResponse(resp0) => {
-                mut resp = resp0
+            EarlyResponse(mut resp) => {
                 resp.header("Connection", "close")
                 ro _ = write_response_keepalive(s, resp)
                 keep_going = false

@@ -131,8 +131,7 @@ fn write_stream_chunks(consume stream TcpStream, resp ServerResponse) Net -> Res
     consume s = stream
     match resp.take_stream() {
         None => { s.close(); Ok(()) }             // unreachable: caller checked @is_streaming()
-        Some(sb) => {
-            mut producer = sb
+        Some(mut producer) => {
             mut running = true
             mut result Result[(), NetError] = Ok(())
             while running {
