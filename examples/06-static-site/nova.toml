@@ -7,4 +7,3 @@ description = "embedded static assets with index fallback and cache headers"
 
 [dependencies]
 polaris = { path = "../.." }
-http = { path = "../../../nova-http" }

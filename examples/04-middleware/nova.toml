@@ -7,4 +7,3 @@ description = "custom middleware, layer ordering, log+ratelimit batteries"
 
 [dependencies]
 polaris = { path = "../.." }
-http = { path = "../../../nova-http" }

@@ -8,7 +8,7 @@ module main
 import polaris.{Router, MethodRouter, ServerRequest, ServerResponse, get, post}
 import polaris.net.{ServerPolicy}
 import polaris.serve.{serve_router, handle_connection_router}
-import http.{StatusCode}
+import polaris.{StatusCode}
 import std.net.{TcpListener, SocketAddr}
 import std.io.{println}
 

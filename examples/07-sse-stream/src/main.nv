@@ -9,7 +9,7 @@ module main
 import polaris.{Router, ServerRequest, ServerResponse, StreamBody, stream_body, sse_event}
 import polaris.net.{ServerPolicy}
 import polaris.serve.{serve_router, handle_connection_router}
-import http.{StatusCode}
+import polaris.{StatusCode}
 import std.net.{TcpListener, SocketAddr}
 
 // `stream_body(f)` wraps a closure `fn() -> Option[[]u8]` — called once per

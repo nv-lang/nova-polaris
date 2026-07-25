@@ -7,4 +7,3 @@ description = "RealWorld-style mini service: json-api + auth + middleware + stat
 
 [dependencies]
 polaris = { path = "../.." }
-http = { path = "../../../nova-http" }

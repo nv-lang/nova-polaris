@@ -33,7 +33,7 @@ import polaris.middleware.cors.{Cors, cors}
 import polaris.middleware.compress.{Compression, compression}
 import polaris.middleware.log.{Log, logger}
 import polaris.middleware.ratelimit.{RateLimit, ratelimit}
-import http.{StatusCode, HttpError, SetCookie}
+import polaris.{StatusCode, HttpError, SetCookie}
 import std.net.{TcpListener, TcpStream, SocketAddr}
 import std.encoding.serde.{Serialize, Deserialize}
 import std.testing.handlers as th

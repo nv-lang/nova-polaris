@@ -9,7 +9,7 @@ module main
 import polaris.{Router, ServerRequest, ServerResponse, BackgroundTasks}
 import polaris.net.{ServerPolicy}
 import polaris.serve.{serve_router, handle_connection_router}
-import http.{StatusCode}
+import polaris.{StatusCode}
 import std.net.{TcpListener, SocketAddr}
 
 // ── ServerPolicy: the accept-loop/connection knobs, as a value ──────────

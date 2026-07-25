@@ -7,4 +7,3 @@ description = "ServerPolicy limits, BackgroundTasks, panic recovery"
 
 [dependencies]
 polaris = { path = "../.." }
-http = { path = "../../../nova-http" }

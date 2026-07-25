@@ -7,4 +7,3 @@ description = "Basic/Bearer/JWT auth, sessions, public/private zones"
 
 [dependencies]
 polaris = { path = "../.." }
-http = { path = "../../../nova-http" }

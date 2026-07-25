@@ -7,4 +7,3 @@ description = "path patterns, MethodRouter, nest, fallbacks, route conflicts"
 
 [dependencies]
 polaris = { path = "../.." }
-http = { path = "../../../nova-http" }

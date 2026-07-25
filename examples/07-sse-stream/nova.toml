@@ -7,4 +7,3 @@ description = "Server-Sent Events ticker via StreamBody"
 
 [dependencies]
 polaris = { path = "../.." }
-http = { path = "../../../nova-http" }

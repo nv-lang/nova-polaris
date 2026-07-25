@@ -7,4 +7,3 @@ description = "REST CRUD in-memory todos with typed JSON extraction and IntoResp
 
 [dependencies]
 polaris = { path = "../.." }
-http = { path = "../../../nova-http" }

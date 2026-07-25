@@ -1,0 +1,13 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// polaris: reexport.nv — реэкспорт протокольных типов ядра `http`, нужных
+// практически каждому потребителю Polaris (axum-канон: axum реэкспортирует
+// http-типы, чтобы приложение не заводило прямую зависимость на http ради
+// одного StatusCode). Примеры/приложения пишут `import polaris.{StatusCode}`
+// и НЕ несут `http` в [dependencies] — единственная внешняя path-граница
+// остаётся в манифесте самого polaris (релиз-форма git+version при теге,
+// см. W_DEP_PATH_NO_RELEASE). Расширять список по фактической нужде
+// потребителей, не впрок.
+
+module polaris
+
+export import http.{StatusCode, HttpError, SetCookie}

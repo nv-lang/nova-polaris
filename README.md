@@ -12,7 +12,7 @@ compress, log, ratelimit), static-file serving, auth
 import polaris.{Router, ServerRequest, ServerResponse}
 import polaris.net.{ServerPolicy}
 import polaris.serve.{serve_router}
-import http.{StatusCode}
+import polaris.{StatusCode}
 import std.net.{TcpListener, SocketAddr}
 
 fn main() Net Time Detach -> () {

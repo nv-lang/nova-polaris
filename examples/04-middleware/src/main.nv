@@ -10,7 +10,7 @@ import polaris.net.{ServerPolicy}
 import polaris.serve.{serve_router, handle_connection_router}
 import polaris.middleware.log.{Log, logger}
 import polaris.middleware.ratelimit.{RateLimit, ratelimit}
-import http.{StatusCode}
+import polaris.{StatusCode}
 import std.net.{TcpListener, SocketAddr}
 
 // ── a custom middleware, batteries style: one flat closure, no nested

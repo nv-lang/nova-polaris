@@ -9,7 +9,7 @@ import polaris.{Router, ServerRequest, ServerResponse, Bearer, BasicAuth, JwtAut
 import polaris.{MemorySessionStore, SessionConfig, session_layer}
 import polaris.net.{ServerPolicy}
 import polaris.serve.{serve_router, handle_connection_router}
-import http.{StatusCode, HttpError}
+import polaris.{StatusCode, HttpError}
 import std.net.{TcpListener, SocketAddr}
 import std.encoding.serde.{Deserialize}
 import std.encoding.json.{JsonValue, Json}

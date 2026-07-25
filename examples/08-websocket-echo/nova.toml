@@ -7,4 +7,3 @@ description = "WebSocket upgrade + echo loop"
 
 [dependencies]
 polaris = { path = "../.." }
-http = { path = "../../../nova-http" }

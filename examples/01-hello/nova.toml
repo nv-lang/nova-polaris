@@ -7,4 +7,3 @@ description = "Polaris example 01 — Router.new + one get + serve: ten lines to
 
 [dependencies]
 polaris = { path = "../.." }
-http = { path = "../../../nova-http" }
