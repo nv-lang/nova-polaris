@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// nova-http: respond.nv — `IntoResponse` protocol + typed-status `ServerResponse`
+// nova-http: response.nv — `IntoResponse` protocol + typed-status `ServerResponse`
 // constructors (Plan 222.5, `polaris.respond`). Everything an HTTP handler can
 // return collapses to a `ServerResponse` through ONE protocol:
 //   `str` / `StatusCode` / `ServerResponse` (identity) / `Json[T Serialize]` /
@@ -229,7 +229,7 @@ export fn Result[R IntoResponse, E IntoResponse] consume @into_response() -> Ser
 /// (probe p1b — different receiver-class, no E_BLANKET_CONFLICT). Bare
 /// scalars are INCLUDED (owner decision): `Ok(42)` → JSON `42`.
 ///
-/// DECLARATION ORDER MATTERS (pinned by respond_test's scalar pins): this
+/// DECLARATION ORDER MATTERS (pinned by response_test's scalar pins): this
 /// blanket must come AFTER the `Result[R,E]` generic impl above — with the
 /// blanket declared FIRST, a PRIMITIVE receiver's blanket call (`42
 /// .into_response()`, direct or via the Result Ok-arm) mangles to the LAST

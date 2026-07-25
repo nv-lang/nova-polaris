@@ -114,7 +114,7 @@ export fn Multipart @file(name str) -> Option[Part] {
 
 /// Guardrails against a malicious/oversized `multipart/form-data` body.
 /// Exceeding ANY of these maps to `HttpError.body_too_large()` → `413`
-/// (respond.nv `http_error_status`, plan §3 — превышение = 413, не опция).
+/// (response.nv `http_error_status`, plan §3 — превышение = 413, не опция).
 #stable(since = "0.1")
 export type MultipartLimits value {
     priv max_parts     int

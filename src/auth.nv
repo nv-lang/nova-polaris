@@ -7,7 +7,7 @@
 // `SessionStore` protocol + `MemorySessionStore` (HashMap+Mutex) +
 // `session_layer` middleware on the 222.4 `Middleware` core).
 //
-// File placement: peer of `server.nv`/`middleware.nv`/`respond.nv`/`extract.nv`
+// File placement: peer of `server.nv`/`middleware.nv`/`response.nv`/`extract.nv`
 // in the SAME module (`http.server`) — folder-module peers compile in sorted
 // order (D78); `auth.nv` sorts FIRST among the peers. That is safe here for the
 // same reason `middleware.nv`'s banner spells out: the only HARD ordering
@@ -151,7 +151,7 @@ export fn BasicAuth.from_request(req ServerRequest) -> Result[BasicAuth, HttpErr
 
 /// Verified, typed JWT claims. NOT `value` — follows the `Json[T]` precedent
 /// ([M-generic-value-self-protocol-wrapper-mono]/-static-ctor-mangle family,
-/// respond.nv banner: generic wrappers stay non-`value`, free/method ctors).
+/// response.nv banner: generic wrappers stay non-`value`, free/method ctors).
 #stable(since = "0.1")
 export type JwtClaims[T] { priv claims T }
 

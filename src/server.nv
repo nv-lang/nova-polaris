@@ -243,7 +243,7 @@ export type ServerResponse value {
 // ── Status constructors: StatusCode-typed = canonical, bare-`int` =
 // DEPRECATED soft-migration bridge (plan 222.5 §4а item 3, unification —
 // `ServerResponse.status` field is `StatusCode`, not `int`; the former
-// respond.nv `.as_u16() as int` delegation is gone — these ARE the
+// response.nv `.as_u16() as int` delegation is gone — these ARE the
 // implementation now). The `int` overloads are NOT removed: ~90 existing
 // call-sites across the package (`server_router.nv`, `static.nv`,
 // `servernet/policy.nv`, middleware, tests, …) pass bare literals and stay

@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // nova-http: extract.nv — `FromRequest` protocol + typed extractors (Plan
 // 222.3, `polaris.extract`). Peer of `server.nv`/`server_router.nv`/
-// `respond.nv` in the SAME module (`http.server`) — folder-module peers
+// `response.nv` in the SAME module (`http.server`) — folder-module peers
 // compile in sorted order (D78); this file's name sorts AFTER all three
 // (`extract` > `respond`, `> server`, `> server_router`) so `Router`
 // (server_router.nv, needed by the arity-overload registrations below) and
-// `IntoResponse`/`Json[T]` (respond.nv, needed because `Json[T]` gets its
+// `IntoResponse`/`Json[T]` (response.nv, needed because `Json[T]` gets its
 // `FromRequest` impl HERE) are both already declared — same ordering
 // discipline `server_router.nv`'s own banner documents, though (per that
 // banner's own distinction) the hazard it warns about is specifically
@@ -84,11 +84,11 @@ export type FromRequest protocol {
 }
 
 // ── Extractor wrapper types (value-record, single field + property accessor —
-// `Json[T]` lives in respond.nv, gets its `FromRequest` impl below) ────────
+// `Json[T]` lives in response.nv, gets its `FromRequest` impl below) ────────
 
 /// `{name}` path-parameter(s), decoded into `T` (`#impl(Deserialize)`).
 /// `value` restored — [M-generic-value-self-protocol-wrapper-mono] CLOSED (ОКНО-3 2026-07-23)
-/// on `Json[T]` in respond.nv (same root cause, same fix).
+/// on `Json[T]` in response.nv (same root cause, same fix).
 #stable(since = "0.1")
 // HOTFIX [M-crossmodule-samename-typecheck-bleed] (221.1 №28): временно PathParam —
 // имя Path коллидирует со std/fs Path во флагман-CU (кодоген генерит .data на чужой
@@ -101,7 +101,7 @@ export fn PathParam[T] @data() -> T => @data
 
 /// `?a=1&b=2` query-string, decoded into `T` (`#impl(Deserialize)`).
 /// `value` restored — [M-generic-value-self-protocol-wrapper-mono] CLOSED (ОКНО-3 2026-07-23)
-/// on `Json[T]` in respond.nv (same root cause, same fix).
+/// on `Json[T]` in response.nv (same root cause, same fix).
 #stable(since = "0.1")
 export type Query[T] value { priv data T }
 
