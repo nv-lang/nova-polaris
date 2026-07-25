@@ -46,4 +46,4 @@ curl -b /tmp/jar -s http://localhost:18086/session/whoami   # тот же id, б
 - [`docs/auth.ru.md`](../../docs/auth.ru.md) — `Bearer`/`BasicAuth`/`JwtAuth`/`CookieJar`/сессии целиком
 - [`docs/middleware.ru.md`](../../docs/middleware.ru.md) — взаимодействие `nest` + `.layer()`
 
-[English](README.md) · зачем пара `main()`/`production_main()` — в [`examples/README.ru.md`](../README.ru.md).
+[English](README.md) · канонический вид `main()` через `serve_router` — в [`examples/README.ru.md`](../README.ru.md).

@@ -1,7 +1,8 @@
 # 08 — websocket-echo
 
-A real RFC 6455 handshake and echo loop over a live loopback socket:
-`ws_accept_key`, `WebSocket.with_limit`, `.recv()`/`.send()`/`.close()`.
+A real RFC 6455 handshake and echo loop over a live loopback socket, through
+the canonical `Router` + `WebSocketUpgrade` extractor: `WebSocketUpgrade.
+from_request`, `.on_upgrade(h)`, `WebSocket.recv()`/`.send()`/`.close()`.
 
 By way of: axum's `websockets` example.
 
@@ -17,39 +18,35 @@ curl http://localhost:18089/health   # ok  (any non-upgrade request)
 ```
 
 A WebSocket client is needed for the echo itself — `curl` alone can't drive
-one. A five-line Python client:
+one. Any client works, e.g. browser devtools' own
+`new WebSocket("ws://localhost:18089/ws")` (the easiest way to try
+`.send()`/`.onmessage` interactively), or PowerShell's
+`System.Net.WebSockets.ClientWebSocket`.
 
-```python
-import socket, base64
-s = socket.create_connection(("127.0.0.1", 18089))
-key = base64.b64encode(b"0123456789012345").decode()
-s.sendall(f"GET /ws HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n".encode())
-print(s.recv(200))   # HTTP/1.1 101 Switching Protocols ...
+## `main()`, same shape as every other example
+
+```nova
+fn ws_echo_handler(req ServerRequest) -> ServerResponse {
+    match WebSocketUpgrade.from_request(req) {
+        Ok(up) => up.on_upgrade(fn(sock WebSocket) Net -> () { ... })
+        Err(e) => e.into_response()
+    }
+}
 ```
 
-(browser devtools' own `new WebSocket("ws://localhost:18089/ws")` works too,
-and is the easiest way to try `.send()`/`.onmessage` interactively.)
-
-## Why this example doesn't use `Router`
-
-Every other example in this set registers routes on a `Router` and drives
-connections through `polaris.serve.handle_connection_router`. The
-documented WebSocket idiom
-([`docs/websocket.md`](../../docs/websocket.md)) — a `WebSocketUpgrade`
-`Router` extractor whose `@on_upgrade(h)` hands the live socket to `h` — is
-real and IS wired end-to-end (see this package's own
-[`src/rt/ws_upgrade_hijack_smoke.nv`](../../src/rt/ws_upgrade_hijack_smoke.nv)),
-but only through `polaris.net.serve_connection`/`serve_router` — the same
-per-request-supervised connection driver every other example's
-`production_main()` names as currently un-linkable in this toolchain
-snapshot (`undefined symbol: nova_fn_hook`). So this example instead drives
-the handshake and the `WebSocket` object directly against the accepted
-socket by hand — the exact shape this package's own live-socket protocol
-proof, [`src/ws/rt/socket_echo_smoke.nv`](../../src/ws/rt/socket_echo_smoke.nv),
-already uses, unaffected by the gap above. Once `serve_router` links again,
-this example's `main()` collapses to the `Router` + `WebSocketUpgrade`
-extractor shape `docs/websocket.md` documents — nothing about the protocol
-layer itself (`polaris.ws`) changes.
+`WebSocketUpgrade.from_request` is a normal `FromRequest` extractor — a
+malformed upgrade request (wrong method, missing `Sec-WebSocket-Key`, etc.)
+is a typed 400, no socket work happens. `up.on_upgrade(h)` writes the `101
+Switching Protocols` response, then hands the live `WebSocket` to `h`, which
+owns it from then on (`consume`, D133 — forgetting to close is a compile
+error, not a leak). `serve_router`'s own connection driver
+(`polaris.net.serve_connection`'s `run_request`) checks for this hook right
+after those 101 bytes are on the wire and hands off the live socket instead
+of the normal keep-alive continuation — no hand-rolled accept loop needed;
+`main()` here is the exact same `serve_router(listener, app,
+ServerPolicy.new())` shape every other example in this set uses (see
+[`examples/README.md`](../README.md)). Live end-to-end proof of this exact
+wiring: [`src/rt/ws_upgrade_hijack_smoke.nv`](../../src/rt/ws_upgrade_hijack_smoke.nv).
 
 ## What to poke at
 
@@ -63,4 +60,4 @@ layer itself (`polaris.ws`) changes.
 
 - [`docs/websocket.md`](../../docs/websocket.md) — `WebSocketUpgrade`, `WebSocket`, automatic protocol behavior, scope
 
-[Русский](README.ru.md)
+[Русский](README.ru.md) · see [`examples/README.md`](../README.md) for `main()`'s canonical `serve_router` shape.

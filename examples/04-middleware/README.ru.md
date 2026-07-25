@@ -44,4 +44,4 @@ curl -D - http://localhost:18085/rl/limited | grep -iE 'HTTP|retry-after'
 - [`docs/middleware.ru.md`](../../docs/middleware.ru.md) — канон-форма `middleware(...)`, `@then`, `nest`+`.layer()`
 - [`docs/batteries.ru.md`](../../docs/batteries.ru.md) — `log`, `ratelimit`, плюс `cors`/`compress`
 
-[English](README.md) · зачем пара `main()`/`production_main()` — в [`examples/README.ru.md`](../README.ru.md).
+[English](README.md) · канонический вид `main()` через `serve_router` — в [`examples/README.ru.md`](../README.ru.md).

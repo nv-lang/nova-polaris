@@ -45,4 +45,4 @@ curl -b /tmp/jar -s http://localhost:18086/session/whoami   # same id, no new Se
 - [`docs/auth.md`](../../docs/auth.md) — `Bearer`/`BasicAuth`/`JwtAuth`/`CookieJar`/sessions, in full
 - [`docs/middleware.md`](../../docs/middleware.md) — `nest` + `.layer()` interaction
 
-[Русский](README.ru.md) · see [`examples/README.md`](../README.md) for why `main()`/`production_main()` come in a pair.
+[Русский](README.ru.md) · see [`examples/README.md`](../README.md) for `main()`'s canonical `serve_router` shape.

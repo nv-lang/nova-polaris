@@ -49,4 +49,4 @@ curl http://localhost:18088/events
 
 - [`docs/serving.ru.md`](../../docs/serving.ru.md#потоки-и-sse) — `StreamBody`, `stream_body`, `sse_event`, разница живого сокета и `serve_once`
 
-[English](README.md) · зачем пара `main()`/`production_main()` — в [`examples/README.ru.md`](../README.ru.md).
+[English](README.md) · канонический вид `main()` через `serve_router` — в [`examples/README.ru.md`](../README.ru.md).

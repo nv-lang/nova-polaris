@@ -40,4 +40,4 @@ curl http://localhost:18083/missing                 # custom 404: nothing here
 - [`docs/routing.ru.md`](../../docs/routing.ru.md) — вся страница, из которой пример
 - [`docs/handlers-response.ru.md`](../../docs/handlers-response.ru.md) — `Handler`, `req.param`
 
-[English](README.md) · зачем пара `main()`/`production_main()` — в [`examples/README.ru.md`](../README.ru.md).
+[English](README.md) · канонический вид `main()` через `serve_router` — в [`examples/README.ru.md`](../README.ru.md).

@@ -35,34 +35,26 @@ nova build --strict-effects src/main.nv
 
 ## Почему у каждого `main()` одна и та же форма
 
-В `src/main.nv` каждого примера — **две** функции с формой точки входа:
+В `src/main.nv` каждого примера — **одна** точка входа, тот самый вид,
+которому учит каждая страница доки (`../docs/overview.ru.md#минимальный-сервер`,
+[`../docs/serving.md`](../docs/serving.md)):
 
-- **`main()`** — то, что реально запускается. Она сама крутит цикл
-  `TcpListener.accept()`, разбирая каждое соединение через низкоуровневый
-  `polaris.serve.handle_connection_router` (в
-  [`../docs/serving.md`](../docs/serving.md) он описан как строительный
-  блок для одного запроса, из которого сделан `serve_router`), внутри
-  одного блока `supervised { spawn { ... } }` — accept прямо на
-  bootstrap-файбере паркуется невалидно (`nova_sched_park: invalid
-  scope/slot`), так что циклу accept нужен свой спавненный файбер вне
-  зависимости от того, каким драйвером соединение обслуживается дальше.
-- **`production_main()`** — компилируется, но **никогда не вызывается**
-  (та же конвенция «compile-only», что и в `docs/doc_samples_test.nv` для
-  всего, что требует реального сокета). Она показывает *канонический* вид,
-  которому учит каждая страница доки: bind, затем один вызов
-  `polaris.serve.serve_router(listener, router, ServerPolicy.new())` — полный
-  accept-цикл с keep-alive, дедлайнами, лимитами тела и admission control.
-  На этом снимке тулчейна этот вызов не линкуется
-  (`undefined symbol: nova_fn_hook`) — минимальный `detach`/`spawn`-репро в
-  этой волне локализовал причину до hook'а recover-500-восстановления после
-  паники, который `serve_router` устанавливает на супервизию каждого
-  запроса, — не до чего-либо в собственном коде роутинга/хендлеров/
-  middleware Polaris, и hook вообще не задействован при работе через
-  низкоуровневый `handle_connection_router` выше. Заведено на дальнейшую
-  доводку рантайм-hook'ов; в остальном каждый пример реально исполняет код
-  фреймворка (`Router`, экстракторы, middleware, auth, статика, SSE,
-  WebSocket) по-настоящему, по реальному сокету, отвечая на реальные
-  `curl`-запросы.
+```nova
+fn main() Net Time Detach -> () {
+    ro app = build_router()
+    consume listener = TcpListener.bind(SocketAddr.from_str("0.0.0.0:PORT")!!)!!
+    serve_router(listener, app, ServerPolicy.new())
+}
+```
+
+Bind, затем один вызов `polaris.serve.serve_router(listener, router, policy)`
+— полный accept-цикл с keep-alive, дедлайнами, лимитами тела и admission
+control, всё из `ServerPolicy`. Без обёртки `supervised { spawn { ... } }`
+вокруг accept-цикла: тело процесса `main` само уже исполняется как файбер,
+так что блокирующий вызов `serve_router` работает прямо там. `08-websocket-
+echo` использует ту же самую форму — hook `WebSocketUpgrade`-хайджека,
+который проверяет собственный драйвер соединения `serve_router` сразу после
+записи ответа `101`, работает без какого-либо ручного accept-цикла.
 
 ## Порты
 

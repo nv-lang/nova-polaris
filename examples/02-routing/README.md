@@ -40,4 +40,4 @@ time — a typed `Err`, never a crash.
 - [`docs/routing.md`](../../docs/routing.md) — the full page this example draws from
 - [`docs/handlers-response.md`](../../docs/handlers-response.md) — `Handler`, `req.param`
 
-[Русский](README.ru.md) · see [`examples/README.md`](../README.md) for why `main()`/`production_main()` come in a pair.
+[Русский](README.ru.md) · see [`examples/README.md`](../README.md) for `main()`'s canonical `serve_router` shape.

@@ -46,4 +46,4 @@ has no artificial delay between ticks (see "what to poke at").
 
 - [`docs/serving.md`](../../docs/serving.md#streaming-and-sse) — `StreamBody`, `stream_body`, `sse_event`, the live-socket vs `serve_once` distinction
 
-[Русский](README.ru.md) · see [`examples/README.md`](../README.md) for why `main()`/`production_main()` come in a pair.
+[Русский](README.ru.md) · see [`examples/README.md`](../README.md) for `main()`'s canonical `serve_router` shape.

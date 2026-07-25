@@ -45,4 +45,4 @@ memory` уже на первом отданном файле, изолирова
 
 - [`docs/static-files.ru.md`](../../docs/static-files.ru.md) — `EmbeddedDir`, правила ETag/Range/index, безопасность
 
-[English](README.md) · зачем пара `main()`/`production_main()` — в [`examples/README.ru.md`](../README.ru.md).
+[English](README.md) · канонический вид `main()` через `serve_router` — в [`examples/README.ru.md`](../README.ru.md).

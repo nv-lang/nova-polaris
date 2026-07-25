@@ -64,4 +64,4 @@ curl http://localhost:18084/todos/99              # 404, структуриро�
 - [`docs/errors.ru.md`](../../docs/errors.ru.md) — `HttpError`, blanket `Result[T, HttpError]`
 - [`docs/routing.ru.md`](../../docs/routing.ru.md) — `MethodRouter`
 
-[English](README.md) · зачем пара `main()`/`production_main()` — в [`examples/README.ru.md`](../README.ru.md).
+[English](README.md) · канонический вид `main()` через `serve_router` — в [`examples/README.ru.md`](../README.ru.md).

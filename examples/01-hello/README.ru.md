@@ -28,19 +28,16 @@ curl http://localhost:18082/
 
 ## Заметка про форму `main()`
 
-`main()` сама крутит цикл `TcpListener.accept()` через низкоуровневый
-`handle_connection_router` (один запрос на соединение, без keep-alive)
-внутри блока `supervised { spawn { ... } }` — accept прямо на
-bootstrap-файбере паркуется невалидно (`nova_sched_park: invalid
-scope/slot`), так что циклу accept всегда нужен свой спавненный файбер.
-`production_main()` (компилируется, не вызывается) показывает
-*канонический* вид из [`docs/serving.md`](../../docs/serving.md) —
-`serve_router` + `ServerPolicy` (keep-alive, дедлайны, admission control),
-который на этом снимке тулчейна не линкуется
-(`undefined symbol: nova_fn_hook`, локализовано до hook'а recover-500,
-а не до чего-либо в этом примере или в коде роутинга/хендлеров Polaris).
-Та же двухфункциональная форма — в каждом примере набора; общее объяснение —
-в [`examples/README.ru.md`](../README.ru.md).
+`main()` — тот самый канонический вид, которому учат
+[`docs/serving.md`](../../docs/serving.ru.md)/
+[`docs/overview.md`](../../docs/overview.ru.md#минимальный-сервер): bind, затем
+один вызов `serve_router(listener, app, ServerPolicy.new())` — полный
+accept-цикл с keep-alive, дедлайнами, лимитами тела и admission control, всё
+из `ServerPolicy`. Без обёртки `supervised { spawn { ... } }` вокруг него:
+тело `main` само уже исполняется как файбер, так что блокирующий вызов
+`serve_router` работает прямо здесь. Та же однофункциональная форма — в
+каждом примере набора; общее объяснение — в
+[`examples/README.ru.md`](../README.ru.md).
 
 ## Связанная документация
 

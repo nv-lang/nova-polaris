@@ -35,31 +35,26 @@ Each example's own README has its port and a couple of `curl` calls to try.
 
 ## Why every `main()` looks the same shape
 
-Every example's `src/main.nv` carries **two** entry-shaped functions:
+Every example's `src/main.nv` carries **one** entry point, the same shape
+every doc page teaches (`../docs/overview.md#minimal-server`,
+[`../docs/serving.md`](../docs/serving.md)):
 
-- **`main()`** — what actually runs. It drives its own `TcpListener.accept()`
-  loop by hand, dispatching each connection through the low-level
-  `polaris.serve.handle_connection_router` (documented in
-  [`../docs/serving.md`](../docs/serving.md) as the single-shot building
-  block `serve_router` is made from), inside one `supervised { spawn { ... } }`
-  block — accepting straight on the bootstrap fiber parks invalidly
-  (`nova_sched_park: invalid scope/slot`), so the loop has to live inside a
-  spawned fiber regardless of which connection driver services it.
-- **`production_main()`** — compiled, **never called** (same "compile-only"
-  convention `docs/doc_samples_test.nv` uses for anything needing a real
-  socket). It shows the *canonical* shape every doc page teaches: bind, then
-  one call to `polaris.serve.serve_router(listener, router, ServerPolicy.new())`
-  — the full accept loop with keep-alive, deadlines, body caps and admission
-  control. In this toolchain snapshot that call fails to **link**
-  (`undefined symbol: nova_fn_hook`), isolated (a minimal `detach`/`spawn`
-  repro during this wave) to the recover-500 panic-recovery hook
-  `serve_router`'s per-request supervision installs — not to anything in
-  Polaris' own routing/handler/middleware code, and not present at all when
-  driving connections through the lower-level `handle_connection_router`
-  used above. Filed for whoever owns the runtime-hook plumbing next; every
-  example otherwise runs the real framework code (`Router`, extractors,
-  middleware, auth, static files, SSE, WebSocket) for real, over a real
-  socket, answering real `curl` requests.
+```nova
+fn main() Net Time Detach -> () {
+    ro app = build_router()
+    consume listener = TcpListener.bind(SocketAddr.from_str("0.0.0.0:PORT")!!)!!
+    serve_router(listener, app, ServerPolicy.new())
+}
+```
+
+Bind, then one call to `polaris.serve.serve_router(listener, router, policy)`
+— the full accept loop with keep-alive, deadlines, body caps and admission
+control, all from `ServerPolicy`. No `supervised { spawn { ... } }` wrapper
+around the accept loop: the process' main body runs as its own fiber, so a
+blocking `serve_router` call works directly there. `08-websocket-echo` uses
+the exact same shape — the `WebSocketUpgrade` hijack hook `serve_router`'s
+own connection driver checks after writing the `101` response works without
+any hand-rolled accept loop.
 
 ## Ports
 
