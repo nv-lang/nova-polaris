@@ -30,36 +30,6 @@ fn not_found() -> ServerResponse => HttpError.new(Status(StatusCode.NOT_FOUND)).
 
 fn bad_request() -> ServerResponse => HttpError.new(Status(StatusCode.BAD_REQUEST)).into_response()
 
-// ⚠️ NOT THE CANONICAL WAY TO BUILD JSON IN POLARIS — read before copying.
-// Everywhere else on this page a `Todo`/`TodoUpdate` goes through the real
-// `#impl(Serialize)`/`#impl(Deserialize)` derive via `ServerResponse.json`
-// (see `create_todo`/`get_todo`/`update_todo` below) — THAT is the idiomatic
-// form; copy THAT, not this.
-//
-// This one function only exists because serializing a whole *collection*
-// (`Vec[Todo]`, for `GET /todos`) hits a currently-open codegen gap
-// (`Vec[T Serialize]`, tracked as nova/221.1 №111 — internal compiler
-// error; see docs/roadmap.md's "not implemented yet" list) — hand-built
-// JSON is a narrow, filed-upstream workaround for THAT ONE GAP, not a
-// general recipe. Once №111 lands, this function and `todos_json` below
-// are deleted and `GET /todos` returns `ServerResponse.json(items)` like
-// every other endpoint on this page.
-fn todo_json_line(t Todo) -> str =>
-    "{\"id\":${t.id},\"title\":\"${t.title}\",\"done\":${t.done}}"
-
-fn todos_json(items Vec[Todo]) -> str {
-    consume sb = StringBuilder.new()
-    sb.append("[")
-    mut first = true
-    for t in items {
-        if !first { sb.append(",") }
-        first = false
-        sb.append(todo_json_line(t))
-    }
-    sb.append("]")
-    sb.into_str()
-}
-
 fn find_by_id(items Vec[Todo], id int) -> Option[Todo] {
     for t in items {
         if t.id == id { return Some(t) }
@@ -85,8 +55,7 @@ fn build_router() -> Router {
     // one of its paths carries 2-3 methods over the same captured state.
     Router.new()
         .route("/todos",
-            get(fn(req ServerRequest) -> ServerResponse =>
-                ServerResponse.bytes(StatusCode.OK, "application/json", todos_json(items).bytes()))
+            get(fn(req ServerRequest) -> ServerResponse => ServerResponse.json(StatusCode.OK, items))
             .post(fn(req ServerRequest) -> ServerResponse {
                 match Json[NewTodo].from_request(req) {
                     Ok(body) => {

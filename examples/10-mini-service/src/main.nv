@@ -49,26 +49,18 @@ fn slugify(title str) -> str {
     sb.into_str()
 }
 
-fn article_json_line(a Article) -> str =>
-    "{\"slug\":\"${a.slug}\",\"title\":\"${a.title}\",\"body\":\"${a.body}\",\"author\":\"${a.author}\"}"
-
-fn articles_json(items Vec[Article], limit int, offset int) -> str {
-    consume sb = StringBuilder.new()
-    sb.append("[")
-    mut first = true
+fn paginate(items Vec[Article], limit int, offset int) -> Vec[Article] {
+    mut out Vec[Article] = Vec[Article].new()
     mut i = 0
     mut emitted = 0
     for a in items {
         if i >= offset && emitted < limit {
-            if !first { sb.append(",") }
-            first = false
-            sb.append(article_json_line(a))
+            out.push(a)
             emitted += 1
         }
         i += 1
     }
-    sb.append("]")
-    sb.into_str()
+    out
 }
 
 fn not_found() -> ServerResponse => HttpError.new(Status(StatusCode.NOT_FOUND)).into_response()
@@ -118,14 +110,14 @@ fn build_router() Time -> Router {
             get(fn(req ServerRequest) -> ServerResponse {
                 ro limit = match (req.query_param("limit") ?? "20").to_int() { Ok(n) => n, Err(_) => 20 }
                 ro offset = match (req.query_param("offset") ?? "0").to_int() { Ok(n) => n, Err(_) => 0 }
-                ServerResponse.bytes(StatusCode.OK, "application/json", articles_json(articles, limit, offset).bytes())
+                ServerResponse.json(StatusCode.OK, paginate(articles, limit, offset))
             }).post(fn(req ServerRequest) -> ServerResponse {
                 match Bearer.from_request(req) {
                     Ok(_) => match Json[NewArticle].from_request(req) {
                         Ok(body) => {
                             ro created = Article { slug: slugify(body.data().title), title: body.data().title, body: body.data().body, author: "demo" }
                             articles.push(created)
-                            ServerResponse.bytes(StatusCode.CREATED, "application/json", article_json_line(created).bytes())
+                            ServerResponse.json(StatusCode.CREATED, created)
                         }
                         Err(e) => e.into_response()
                     }
@@ -137,7 +129,7 @@ fn build_router() Time -> Router {
             mut found Option[Article] = None
             for a in articles { if a.slug == slug { found = Some(a) } }
             match found {
-                Some(a) => ServerResponse.bytes(StatusCode.OK, "application/json", article_json_line(a).bytes())
+                Some(a) => ServerResponse.json(StatusCode.OK, a)
                 None    => not_found()
             }
         })!!

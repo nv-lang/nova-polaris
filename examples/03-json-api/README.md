@@ -7,12 +7,6 @@ for the not-found/bad-input paths.
 
 By way of: axum's `todos` example, the FastAPI tutorial's items CRUD.
 
-> **Note before you read the code:** every endpoint here builds its JSON via
-> `#impl(Serialize)` + `ServerResponse.json` — the canonical way — **except**
-> `GET /todos`, which hand-builds the array as a string. That one function is
-> a narrow workaround for an open codegen gap (`Vec[T Serialize]`, see
-> "Two things this example works around" below), **not** a pattern to copy.
-
 ## Run
 
 ```sh
@@ -41,15 +35,8 @@ curl http://localhost:18084/todos/99              # 404, structured HttpError JS
 - Add a `PATCH /todos/{id}` that only updates the fields present in the body
   (today's `PUT` here replaces both `title`/`done` unconditionally).
 
-## Two things this example works around
+## One thing this example works around
 
-- **`Vec[T Serialize]` collection serialization** is an open codegen gap
-  (serde's own collection support is still landing — see
-  [`docs/roadmap.md`](../../docs/roadmap.md)'s "not implemented yet" list).
-  `GET /todos` hand-builds its JSON array line by line
-  (`todo_json_line`/`todos_json`) instead of serializing `Vec[Todo]`
-  directly; every *individual* `Todo` still goes through the real
-  `Serialize` derive via `ServerResponse.json` everywhere else on this page.
 - **Two-or-more independent same-path route registrations that each close
   over the same outer mutable state** crash at startup (a minimal repro was
   isolated during this wave). Every path on this page that carries more than
@@ -60,9 +47,13 @@ curl http://localhost:18084/todos/99              # 404, structured HttpError JS
   per-call form throughout and needs no such workaround (its handlers don't
   share mutable state across methods on one path).
 
-Both are filed for the compiler/runtime owner; neither reflects anything
-about Polaris' own routing/handler/JSON API, which this example otherwise
-exercises for real.
+Filed for the compiler/runtime owner; it doesn't reflect anything about
+Polaris' own routing/handler/JSON API, which this example otherwise exercises
+for real. (Collection serialization — `GET /todos` returning `Vec[Todo]`
+directly via `ServerResponse.json` — used to need a hand-built-JSON
+workaround here for an open codegen gap, nova/221.1 №111; that gap is closed,
+so every endpoint on this page now goes through the real `Serialize` derive
+uniformly, individual `Todo` and `Vec[Todo]` alike.)
 
 ## Related documentation
 
