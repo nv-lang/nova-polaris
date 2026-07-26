@@ -35,31 +35,26 @@ fn policy_report() -> str {
 
 fn build_router() -> Router {
     mut log []str = []
-    mut r = Router.new()
 
-    r.get("/health", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, "ok"))!!
-
-    r.get("/policy", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, policy_report()))!!
-
-    // BackgroundTasks: the response goes out FIRST ("queued"), the queued
-    // work runs afterward — `serve_router`'s own connection driver
-    // (`polaris.net.serve_connection`) calls `@drain()` right after the
-    // response bytes are written, same as the single-shot
-    // `handle_connection_router` would (see docs/serving.md#background-tasks).
-    r.get("/work", fn(req ServerRequest) -> ServerResponse {
-        mut bg = BackgroundTasks.new()
-        bg.add(|| { log.push("background task ran") })
-        mut resp = ServerResponse.text(StatusCode.OK, "queued ${bg.task_count()} background task(s)")
-        resp.background(bg)
-        resp
-    })!!
-
-    r.get("/log", fn(req ServerRequest) -> ServerResponse {
-        if log.len() == 0 { ServerResponse.text(StatusCode.OK, "(empty — hit /work first)") }
-        else { ServerResponse.text(StatusCode.OK, log[log.len() - 1]) }
-    })!!
-
-    r
+    Router.new()
+        .get("/health", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, "ok"))!!
+        .get("/policy", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, policy_report()))!!
+        // BackgroundTasks: the response goes out FIRST ("queued"), the queued
+        // work runs afterward — `serve_router`'s own connection driver
+        // (`polaris.net.serve_connection`) calls `@drain()` right after the
+        // response bytes are written, same as the single-shot
+        // `handle_connection_router` would (see docs/serving.md#background-tasks).
+        .get("/work", fn(req ServerRequest) -> ServerResponse {
+            mut bg = BackgroundTasks.new()
+            bg.add(|| { log.push("background task ran") })
+            mut resp = ServerResponse.text(StatusCode.OK, "queued ${bg.task_count()} background task(s)")
+            resp.background(bg)
+            resp
+        })!!
+        .get("/log", fn(req ServerRequest) -> ServerResponse {
+            if log.len() == 0 { ServerResponse.text(StatusCode.OK, "(empty — hit /work first)") }
+            else { ServerResponse.text(StatusCode.OK, log[log.len() - 1]) }
+        })!!
 }
 
 /// Canonical production shape (serving.md/overview.md): `main` IS the accept
