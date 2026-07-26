@@ -24,29 +24,24 @@ fn static_config() -> Static {
     cfg
 }
 
-fn build_router() -> Router {
-    mut r = Router.new()
-
-    // Root: no {*path} capture is available at "/" itself, so the index
-    // file is served by calling `serve_path` directly with an empty path —
-    // the same fallback `static_handler` performs internally for a
-    // trailing-`/` request under `/assets/`.
-    r.get("/", fn(req ServerRequest) -> ServerResponse =>
-        serve_path(site(), static_config(), "", req))!!
-
-    // `static_handler(fs, cfg, param)` (the one-call ready-`Handler` helper
-    // documented in static-files.md) currently hits a codegen gap for this
-    // package's own `EmbeddedDir` (`out of memory` on the very first served
-    // asset — isolated during this wave, filed upstream); calling
-    // `serve_path` directly from a plain closure, the same shape the root
-    // route above already uses, is unaffected and is exactly what
-    // `static_handler` does internally (see its own one-line body in
-    // `src/static.nv`).
-    r.get("/assets/{*path}", fn(req ServerRequest) -> ServerResponse =>
-        serve_path(site(), static_config(), req.param("path") ?? "", req))!!
-
-    r
-}
+fn build_router() -> Router =>
+    Router.new()
+        // Root: no {*path} capture is available at "/" itself, so the index
+        // file is served by calling `serve_path` directly with an empty path —
+        // the same fallback `static_handler` performs internally for a
+        // trailing-`/` request under `/assets/`.
+        .get("/", fn(req ServerRequest) -> ServerResponse =>
+            serve_path(site(), static_config(), "", req))!!
+        // `static_handler(fs, cfg, param)` (the one-call ready-`Handler` helper
+        // documented in static-files.md) currently hits a codegen gap for this
+        // package's own `EmbeddedDir` (`out of memory` on the very first served
+        // asset — isolated during this wave, filed upstream); calling
+        // `serve_path` directly from a plain closure, the same shape the root
+        // route above already uses, is unaffected and is exactly what
+        // `static_handler` does internally (see its own one-line body in
+        // `src/static.nv`).
+        .get("/assets/{*path}", fn(req ServerRequest) -> ServerResponse =>
+            serve_path(site(), static_config(), req.param("path") ?? "", req))!!
 
 /// Canonical production shape (serving.md/overview.md): `main` IS the accept
 /// loop, no `supervised { spawn { ... } }` wrapper needed — main-body runs as
