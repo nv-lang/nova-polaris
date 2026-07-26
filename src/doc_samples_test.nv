@@ -24,14 +24,14 @@ import polaris.{Json, PathParam, Query, Bytes, Text, Headers, Multipart}
 import polaris.{Bearer, BasicAuth, JwtAuth, JwtClaims, CookieJar}
 import polaris.{MemorySessionStore, SessionConfig, session_layer, require_jwt}
 import polaris.{BackgroundTasks, StreamBody, sse_event, WebSocketUpgrade}
-import polaris.{serve_once, route_once}
+import polaris.{serve_once, route_once, capture_log, Log}
 import polaris.ws.{WebSocket, Message}
 import polaris.net.{ServerPolicy}
 import polaris.serve.{serve_router, handle_connection_router}
 import polaris.static.{Static, static_handler, serve_path}
 import polaris.middleware.cors.{Cors, cors}
 import polaris.middleware.compress.{Compression, compression}
-import polaris.middleware.log.{Log, logger}
+import polaris.middleware.log.{AccessLog, logger}
 import polaris.middleware.ratelimit.{RateLimit, ratelimit}
 import polaris.{StatusCode, HttpError, SetCookie}
 import std.net.{TcpListener, TcpStream, SocketAddr}
@@ -372,9 +372,8 @@ test "batteries: compress — gzip only above min_size and when the client accep
 
 test "batteries: log — one line per request, X-Request-Id propagated" {
     mut lines []str = []
-    mut cfg = Log.new()
-    cfg.sink(fn(line str) -> () => { lines.push(line) })
-    with Time = th.fixed_ms(0) {
+    ro cfg = AccessLog.new()
+    with Time = th.fixed_ms(0), Log = capture_log(lines) {
         mut r = Router.new()
         r.layer(logger(cfg))
         r.get("/x", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, "ok"))!!
@@ -575,6 +574,17 @@ test "serving: BackgroundTasks run AFTER the response, in FIFO order" {
     assert(order.len() == 2)
     assert(order[0] == 1)
     assert(order[1] == 2)
+}
+
+test "serving: Log — info/error lines captured, no stdout scraping" {
+    mut lines []str = []
+    with Log = capture_log(lines) {
+        Log.info("hello")
+        Log.error("boom")
+    }
+    assert(lines.len() == 2)
+    assert(lines[0] == "hello")
+    assert(lines[1] == "boom")
 }
 
 test "serving: SSE — text/event-stream headers + event/data framing" {

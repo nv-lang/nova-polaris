@@ -55,7 +55,7 @@ module polaris.net
 import std.net.{TcpListener, TcpStream, NetError}
 import std.runtime.sync.{Semaphore}
 import std.time.duration
-import polaris.{ServerResponse, serialize_response}
+import polaris.{ServerResponse, serialize_response, Log}
 import polaris.{serialize_response_head, encode_chunk, encode_chunk_end}
 
 // ── ws-hijack + recover-500: run one request's handler UNDER Stop-
@@ -117,8 +117,10 @@ type ConnStep enum
 // `handler(raw)` UNDER Stop-supervision, checks the result for a ws-hijack
 // (`@take_upgrade()`), and writes the response, ALL inside the same spawned
 // fiber (see banner above for why). On a caught panic/throw, logs
-// `"handler panic: <message>"` via `policy`'s own sink
-// (`policy.panic_emit`/`@panic_sink`) and answers per `policy.panic_response()`:
+// `"handler panic: <message>"` via the ambient `Log` effect (`Log.error`,
+// raw op — Plan 222.20 Ф.3 Волна A §Q3, `log.nv`; this fn's own row stays
+// `Net Time`, unchanged — design note §0 Ф-C: a raw op is not checked under
+// `--strict-effects`) and answers per `policy.panic_response()`:
 // `InternalError500` -> writes a 500 (in THIS, the un-panicked caller fiber —
 // the spawn already exited), `Close` -> writes nothing.
 fn run_request(mut s TcpStream, handler fn([]u8) -> ServerResponse, raw []u8, policy ServerPolicy, keep_alive bool) Net Time -> ConnStep {
@@ -189,7 +191,7 @@ fn run_request(mut s TcpStream, handler fn([]u8) -> ServerResponse, raw []u8, po
         }
     }
     if failed {
-        (policy.panic_emit)("handler panic: ${reason}")
+        Log.error("handler panic: ${reason}")
         match policy.panic_response() {
             // `InternalError500`: the panic was cleanly caught BEFORE any
             // response bytes went out (the whole handler call + write

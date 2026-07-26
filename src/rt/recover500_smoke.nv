@@ -4,7 +4,10 @@
 // `serve_connection`'s Stop-supervision (`run_request`, servernet/serve.nv)
 // — the client gets a `500`, the connection's admission slot is NOT leaked
 // (the SAME connection serves a SECOND, normal request right after), and the
-// panic is logged through `ServerPolicy.panic_sink`.
+// panic is logged through the ambient `Log` effect (Plan 222.20 Ф.3 Волна A
+// §Q3 — `run_request` calls `Log.error(...)` as a raw op; this test
+// installs `with Log = ...` around the server fiber's `serve_connection`
+// call instead of the retired `ServerPolicy.panic_sink`).
 //
 // EXPECT_TIMEOUT_MS-marked (standalone per test-conventions.md — binds a
 // real loopback port, same discipline as this folder's other smokes).
@@ -61,12 +64,12 @@ test "servernet: recover-500 — handler panic -> 500, connection stays alive fo
         ro (server_ok_tx, server_ok_rx) = Channel.new(1)
         ro (r1_tx, r1_rx) = Channel.new(1)
         ro (r2_tx, r2_rx) = Channel.new(1)
-        // `ServerPolicy.panic_sink`'s callback runs on the SAME fiber that
-        // calls it (`run_request`, servernet/serve.nv) — the same fiber that
-        // owns `policy` itself (constructed inside this test's OWN server
-        // fiber below), so the CONTAINS-check happens locally, in-fiber; only
-        // the resulting `bool` crosses back to the test's main flow via a
-        // Channel — `str` itself is NOT word-safe (`nova_str` is a 2-word
+        // `Log.error(...)` (raw op, `run_request`) runs on the SAME fiber
+        // that calls it — the same fiber that owns `policy` itself
+        // (constructed inside this test's OWN server fiber below), so the
+        // CONTAINS-check happens locally, in-fiber; only the resulting
+        // `bool` crosses back to the test's main flow via a Channel —
+        // `str` itself is NOT word-safe (`nova_str` is a 2-word
         // `{ptr, len}`, `vtables.h`) and would hit the SAME
         // `E_CHANNEL_UNSOUND_ELEM_TYPE` class `run_request`'s own banner
         // documents for `ServerResponse` — no need to even try sending it.
@@ -81,13 +84,17 @@ test "servernet: recover-500 — handler panic -> 500, connection stays alive fo
                             consume s = srv
                             mut policy = ServerPolicy.new()
                             ro logtx = log_ok_tx
-                            policy.panic_sink(fn(line str) {
-                                ro tx = logtx
-                                tx.try_send(line.contains("boom"))
-                            })
-                            match serve_connection(s, make_handler(router), policy) {
-                                Ok(_)  => { server_ok_tx.try_send(true) }
-                                Err(_) => { server_ok_tx.try_send(false) }
+                            with Log = effect Log {
+                                info(msg str) -> () { }
+                                error(msg str) -> () {
+                                    ro tx = logtx
+                                    tx.try_send(msg.contains("boom"))
+                                }
+                            } {
+                                match serve_connection(s, make_handler(router), policy) {
+                                    Ok(_)  => { server_ok_tx.try_send(true) }
+                                    Err(_) => { server_ok_tx.try_send(false) }
+                                }
                             }
                         }
                         Err(_) => { server_ok_tx.try_send(false) }

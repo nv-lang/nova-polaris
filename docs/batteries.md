@@ -91,9 +91,8 @@ negotiation is deliberately absent until one exists.
 ```nova
 test "batteries: log — one line per request, X-Request-Id propagated" {
     mut lines []str = []
-    mut cfg = Log.new()
-    cfg.sink(fn(line str) -> () => { lines.push(line) })
-    with Time = th.fixed_ms(0) {
+    ro cfg = AccessLog.new()
+    with Time = th.fixed_ms(0), Log = capture_log(lines) {
         mut r = Router.new()
         r.layer(logger(cfg))
         r.get("/x", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, "ok"))!!
@@ -106,8 +105,9 @@ test "batteries: log — one line per request, X-Request-Id propagated" {
 ```
 
 One line per request: method, path, status, response body size, wall
-duration. `Log.new()` defaults to request-id **on**, real-ip **off**, lines
-to stdout via the ambient `Io` effect; `@sink(f)` redirects lines anywhere
+duration. `AccessLog.new()` defaults to request-id **on**, real-ip **off**;
+lines go through the ambient [`Log` effect](serving.md#the-log-effect) — stdout
+by default, redirectable in tests via `with Log = capture_log(lines) { ... }`
 (the test above captures into a `Vec[str]` — no stdout scraping needed in
 your own tests either). `X-Request-Id` is taken from an incoming header
 when present and safe, else generated from a per-config counter
@@ -119,7 +119,10 @@ only trust it behind a proxy that overwrites it.
 `@middleware()` carries a `Time` effect row (it measures wall-clock
 duration around the wrapped handler) — tests fix the clock with
 `with Time = th.fixed_ms(...)` (`std.testing.handlers`) for deterministic
-output, exactly as above.
+output, exactly as above. `Log` is NOT in that row: the per-request line is
+emitted through a raw `Log.info(...)` op (not checked under
+`--strict-effects`, see [serving.md](serving.md#the-log-effect)), so it composes
+into the same `with Time = ..., Log = ... { ... }` block freely.
 
 ## ratelimit
 

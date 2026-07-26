@@ -20,6 +20,7 @@ Source: [`src/net/serve.nv`](../src/net/serve.nv),
 - [Running the accept loop](#running-the-accept-loop)
 - [Streaming and SSE](#streaming-and-sse)
 - [Background tasks](#background-tasks)
+- [The `Log` effect](#the-log-effect)
 - [Related documents](#related-documents)
 
 ---
@@ -94,8 +95,8 @@ fn serving_main(consume listener TcpListener, consume single TcpStream, app Rout
 A caught handler panic is answered per `policy.panic_response()`
 (`InternalError500` by default — an honest `500`, keeping the connection
 alive for the *next* request if both sides had agreed to keep-alive) and
-logged via `policy.panic_emit`/`@panic_sink(f)` (stdout by default,
-redirectable — same recipe as `Log`'s own `@sink`, [batteries.md](batteries.md#log)).
+logged through the ambient [`Log` effect](#the-log-effect) (stdout by
+default, redirectable in tests — see below).
 
 See [`overview.md`](overview.md#minimal-server) for the minimal end-to-end
 `main()` this function's own doc-comment abbreviates.
@@ -160,9 +161,44 @@ FastAPI's `BackgroundTasks`, built as pure composition of `spawn`/`supervised`
 driver (`handle_connection`/`serve_connection`) calls `@drain()` **after**
 the response bytes are fully written to the client — queued work never adds
 handler latency. Tasks run **one at a time**, each in its own `supervised`
-scope: a panicking task is contained (logged via `@sink(f)`, stdout by
-default), does not stop tasks queued after it, and does not crash the
-process.
+scope: a panicking task is contained (logged through the ambient
+[`Log` effect](#the-log-effect), stdout by default), does not stop tasks
+queued after it, and does not crash the process.
+
+## The `Log` effect
+
+```nova
+test "serving: Log — info/error lines captured, no stdout scraping" {
+    mut lines []str = []
+    with Log = capture_log(lines) {
+        Log.info("hello")
+        Log.error("boom")
+    }
+    assert(lines.len() == 2)
+    assert(lines[0] == "hello")
+    assert(lines[1] == "boom")
+}
+```
+
+`Log` (`src/log.nv`) is the ONE ambient logging capability this package
+uses — `info` for routine lines (the [`log` battery](batteries.md#log)'s
+per-request line), `error` for failures a human should see (a background
+task's panic/throw above, and a handler panic caught by recover-500). It
+replaced three independent hand-rolled sink copies (`BackgroundTasks`'s own
+`@emit`/`@sink`, the `log` battery's own `emit`/`@sink`,
+`ServerPolicy`'s own `panic_emit`/`@panic_sink`) — Plan 222.20 §Q3.
+
+Production code never installs a handler explicitly: `real_log()` is
+`#default_handler` (D431) — both levels go to stdout, lazily, on first
+ambient use. Tests redirect with `with Log = capture_log(lines) { ... }`
+(`lines` is a `Vec[str]`, appended to IN CALL ORDER — no stdout scraping).
+Every call site in this package (`BackgroundTasks.@drain()`, the `log`
+battery's `log_apply`, `run_request`'s recover-500 path) calls
+`Log.info`/`Log.error` as a **raw effect op**, not through a Log-declaring
+named function — `--strict-effects` does not check a raw op against the
+caller's own effect row, so none of those functions carry `Log` in their
+signature; only `Time`/`Net`/whatever else they already needed shows up
+there.
 
 ## Related documents
 
