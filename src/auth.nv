@@ -28,30 +28,49 @@
 //   banner). The concrete-receiver + method-generic + turbofish call
 //   (`auth.claims_at[MyClaims](req, now)`) mirrors the WORKING
 //   `Response @json_as[T]()` precedent (serdejson.nv:67).
-// · Explicit `now_ms u64` instead of the `Time` effect: `Handler` is a plain
-//   `fn(ServerRequest) -> ServerResponse` with NO effect row, so a handler
-//   body cannot call a `Time`-effectful fn (`Jwt.validate_hs256`) under
-//   --strict-effects. exp/nbf checking is therefore inlined here against a
-//   caller-supplied clock (mirrors std jwt.nv:137-159 — validation logic, not
-//   crypto), deterministic in tests by construction (the same AI-first goal
-//   jwt.nv states for `th.fixed_ms`).
-// · `require_jwt(auth)` middleware verifies SIGNATURE + exp/nbf via the
-//   `now_fn` closure supplied at construction (caller decides the clock —
-//   same explicit-clock reasoning as above).
-// · Sessions: `ttl` lives on the STORE (`MemorySessionStore.new(ttl_ms)`), not
-//   per-`@save` as the plan sketch drew — `@save(id, data, now_ms)` keeps the
-//   protocol effect-free with one clock argument instead of two (deviation
-//   documented for the umbrella integrator). Lazy TTL eviction happens on
-//   `@load` (expired entry → removed + `None`), tower-sessions-style.
-// · `session_layer` ensures a session id: existing cookie → injects
-//   `("session_id", sid)` into `req.params`; missing → generates via `id_gen`,
-//   EAGER-saves an empty `SessionData` and sets the session cookie on the
-//   response with the config's SECURE DEFAULTS (http_only=true, secure=true,
-//   SameSite=Lax — plan §4 "иначе типовая дыра").
-// · id/clock come in as plain closures (`id_gen fn() -> str`,
-//   `now_fn fn() -> u64`) — same effect-row constraint as above; production
-//   callers wrap their entropy source at router-construction time, tests pass
-//   counters. Session-id STRENGTH is the caller's duty (skeleton scope).
+// · Explicit `now_ms u64` instead of the `Time` effect FOR `@claims_at[T]`
+//   ONLY: `claims_at` is called from a real `Handler` body (`fn(ServerRequest)
+//   -> ServerResponse`, NO effect row), so it still cannot call a
+//   `Time`-effectful fn under --strict-effects; exp/nbf checking stays
+//   inlined against a caller-supplied clock (mirrors std jwt.nv:137-159 —
+//   validation logic, not crypto), deterministic in tests by construction.
+// · `require_jwt(auth) Time -> Middleware` (Plan 222.20 Ф.3 Волна B, §Q4
+//   design-note): unlike `claims_at`, the guard body is NOT itself a
+//   `Handler` — it runs inside the closure `require_jwt` BUILDS at
+//   middleware-construction time, so the constructor can declare `Time` on
+//   its own return-effect row (the Ф-D pattern `middleware/log.nv`'s
+//   `AccessLog @middleware() Time -> Middleware` already established) and the
+//   hoisted `jwt_guard_apply`/`jwt_verify_only` helpers below call
+//   `Timestamp.now()` directly — no `now_fn` closure needed. Production sees
+//   the real clock (`Time`'s `#default_handler`, D431); tests wrap with
+//   `with Time = th.fixed_ms(now_ms) { ... }`.
+// · Sessions: `SessionStore` is an EFFECT, not a protocol (Plan 222.20 Ф.3
+//   Волна B, §Q2 design-note — textbook resource-substitution case, Правило 4:
+//   prod Redis/PG vs in-memory in tests). `now_ms` is GONE from every op
+//   (`load(id)`/`save(id, data)`/`destroy(id)`) — TTL bookkeeping lives
+//   entirely inside the handler (`memory_session_store(ttl_ms)` below), which
+//   reads the clock via the RAW `Time.now()` op (design-note §2: "TTL-логика
+//   внутри handler'а зовёт Time сырым опом" — the same raw-op discipline
+//   `log.nv`'s `Log.info`/`.error` already rely on, so `memory_session_store`
+//   itself carries NO `Time` row). Lazy TTL eviction happens on `load`
+//   (expired entry → removed + `None`), tower-sessions-style. `SessionStore`
+//   has NO `#default_handler` (unlike `Log`/`Time`): it is a resource a
+//   production caller must explicitly choose (`with SessionStore =
+//   memory_session_store(ttl_ms) { ... }` around `serve`/router dispatch —
+//   the `mock_http()`/`real_http()` triad shape, not the ambient-`Log` one).
+// · `session_layer(cfg) Random -> Middleware` ensures a session id: existing
+//   cookie → injects `("session_id", sid)` into `req.params`; missing →
+//   mints one via `Random.bytes(16)` (hex-encoded, `std.encoding.hex`),
+//   EAGER-saves an empty `SessionData` (`SessionStore.save`, called as a RAW
+//   op — design-note §2 "Совместимость с session_layer": `store` is no longer
+//   a parameter, ops resolve against whatever `with SessionStore = ...` is
+//   active at request time) and sets the session cookie with the config's
+//   SECURE DEFAULTS (http_only=true, secure=true, SameSite=Lax — plan §4
+//   "иначе типовая дыра"). `id_gen`/`now_fn` closures are GONE; session-id
+//   STRENGTH is `Random`'s handler's duty now (CSPRNG in prod — `Random` has
+//   no `real_*()` ctor yet, D431 Ф.2-v4 П9 open question, NOT a blocker for
+//   this wave since declaring `Random` in the row needs no default to
+//   type-check; tests use `with Random = th.seeded(...)`).
 
 module polaris
 
@@ -59,6 +78,7 @@ import http.{HttpError, StatusCode, Cookie, SetCookie, SameSite}
 import std.collections.hashmap.{HashMap}
 import std.crypto.jwt.{Jwt, JwtError}
 import std.encoding.base64.{Base64}
+import std.encoding.hex.{Hex}
 import std.encoding.json.{JsonValue}
 import std.encoding.serde.{Deserialize, JsonDeserializer}
 import std.runtime.sync.{Mutex}
@@ -237,8 +257,14 @@ export fn JwtAuth @claims_at[T Deserialize](req ServerRequest, now_ms u64) -> Re
 // closure in `require_jwt` captures ONE level only ([M-16] discipline) and
 // `next` arrives HERE as a param (`next(req)` = safe D52 param call-through;
 // a captured Handler must never be called by identifier inside a closure).
-fn jwt_guard_apply(auth JwtAuth, now_fn fn() -> u64, next Handler, req ServerRequest) -> ServerResponse {
-    ro verdict = jwt_verify_only(auth, req, now_fn())
+// `Time` row (Plan 222.20 Ф.3 Волна B, §Q4): mirrors `middleware/log.nv`'s
+// `log_apply`/`middleware/ratelimit.nv`'s `rl_apply` — this fn is called from
+// a closure BUILT inside `require_jwt`'s own `Time`-declaring constructor,
+// not from a plain `Handler` body, so declaring `Time` here and calling
+// `Timestamp.now()` is ordinary row-checked usage (ambient default in prod,
+// `with Time = th.fixed_ms(...)` in tests).
+fn jwt_guard_apply(auth JwtAuth, next Handler, req ServerRequest) Time -> ServerResponse {
+    ro verdict = jwt_verify_only(auth, req)
     match verdict {
         Ok(_)  => next(req)
         Err(_) => unauthorized_bearer()
@@ -247,12 +273,13 @@ fn jwt_guard_apply(auth JwtAuth, now_fn fn() -> u64, next Handler, req ServerReq
 
 // Untyped verification (signature + exp/nbf, no claims decode) — the
 // middleware-side check `require_jwt` runs.
-fn jwt_verify_only(auth JwtAuth, req ServerRequest, now_ms u64) -> Result[(), HttpError] {
+fn jwt_verify_only(auth JwtAuth, req ServerRequest) Time -> Result[(), HttpError] {
     ro bearer = Bearer.from_request(req)?
     ro payload = match Jwt.decode_hs256(auth.secret, bearer.token()) {
         Ok(v)  => v
         Err(e) => return Err(jwt_401(e))
     }
+    ro now_ms = Timestamp.now().unix_millis() as u64
     jwt_check_time(payload, now_ms)
 }
 
@@ -261,13 +288,14 @@ fn jwt_verify_only(auth JwtAuth, req ServerRequest, now_ms u64) -> Result[(), Ht
 /// `WWW-Authenticate: Bearer`; pass verified requests through untouched.
 /// Typed claims inside the handler come from `@claims_at[T]` (plan §5.1
 /// resolution — the extractor and the guard COMPOSE, neither needs Extension
-/// magic). `now_fn` supplies the clock (file banner: `Handler` has no effect
-/// row, so the `Time` effect cannot be performed here).
+/// magic). `Time` row (Plan 222.20 Ф.3 Волна B, §Q4 — the Ф-D pattern):
+/// the clock comes from the `Time` effect now, no `now_fn` closure —
+/// production sees the real clock (`#default_handler`, D431), tests wrap
+/// with `with Time = th.fixed_ms(now_ms) { ... }`.
 #stable(since = "0.1")
-export fn require_jwt(auth JwtAuth, now_fn fn() -> u64) -> Middleware {
+export fn require_jwt(auth JwtAuth) Time -> Middleware {
     ro a = auth
-    ro nf = now_fn
-    middleware(fn(req ServerRequest, next Handler) -> ServerResponse => jwt_guard_apply(a, nf, next, req))
+    middleware(fn(req ServerRequest, next Handler) -> ServerResponse => jwt_guard_apply(a, next, req))
 }
 
 // ── CookieJar (axum-extra shape) + Set-Cookie response helper ─────────────
@@ -356,73 +384,80 @@ export fn SessionData mut @set(key str, v str) -> @ {
 #stable(since = "0.1")
 export fn SessionData @len() -> int => @kv.len()
 
-/// Session storage abstraction (in-memory below; Redis/DB are user-land
-/// implementations). All methods take/imply an explicit clock (`now_ms`) —
-/// see file banner (Handler has no effect row → no `Time` effect here).
-/// TTL policy lives on the STORE (documented deviation from the plan sketch's
-/// per-save `ttl` — one clock argument instead of two).
+/// Session storage capability (Plan 222.20 Ф.3 Волна B, §Q2 design-note):
+/// EFFECT, not protocol — textbook resource-substitution (prod Redis/PG vs
+/// in-memory in tests, Правило 4, 04-effects.md:2857/2865). `now_ms` is GONE
+/// from every op — TTL bookkeeping is the HANDLER's own business now (see
+/// `memory_session_store` below), not the caller's.
 #stable(since = "0.1")
-export type SessionStore protocol {
-    mut @load(id str, now_ms u64) -> Result[Option[SessionData], HttpError]
-    mut @save(id str, data SessionData, now_ms u64) -> Result[(), HttpError]
-    mut @destroy(id str) -> Result[(), HttpError]
+export type SessionStore effect {
+    load(id str) -> Result[Option[SessionData], HttpError]
+    save(id str, data SessionData) -> Result[(), HttpError]
+    destroy(id str) -> Result[(), HttpError]
 }
 
 // Stored entry: data + absolute expiry.
 type SessionEntry value { ro data SessionData, ro expires_ms u64 }
 
-/// In-memory `SessionStore`: `HashMap` under a `Mutex` (fiber-safe), lazy TTL
-/// eviction on `@load`.
-#stable(since = "0.1")
-export type MemorySessionStore { priv mu Mutex, priv map HashMap[str, SessionEntry], priv ttl_ms u64 }
-
-/// New store; every saved session lives `ttl_ms` from its save time.
-#stable(since = "0.1")
-export fn MemorySessionStore.new(ttl_ms u64) -> MemorySessionStore =>
-    { mu: Mutex.new(), map: HashMap[str, SessionEntry].new(), ttl_ms }
-
-#impl(SessionStore)
-export fn MemorySessionStore mut @load(id str, now_ms u64) -> Result[Option[SessionData], HttpError] {
-    mut mu = @mu
-    consume g = mu.lock()
-    // Explicit unlock at the single exit (not `defer` — D133's consume-tracking
-    // does not credit a defer'd `.unlock()` in this shape; sync_test.nv:108 form).
-    ro out = match @map.get(id) {
-        Some(e) => {
-            if now_ms >= e.expires_ms {
-                ro _ = @map.remove(id)   // lazy TTL eviction
-                Ok(none_session())
-            } else {
-                Ok(Some(e.data))
-            }
-        }
-        None => Ok(none_session())
-    }
-    g.unlock()
-    out
-}
-
-// Bare `None` in the branchy `Ok(None)` positions above monomorphizes to
+// Bare `None` in the branchy `Ok(None)` positions below monomorphizes to
 // `Option[int]` in emitted C (same defect class cookie.nv works around with
 // `none_cookie_str`/`none_cookie_int`) — a typed helper pins the instantiation.
 fn none_session() -> Option[SessionData] => None
 
-#impl(SessionStore)
-export fn MemorySessionStore mut @save(id str, data SessionData, now_ms u64) -> Result[(), HttpError] {
-    mut mu = @mu
-    consume g = mu.lock()
-    ro _ = @map.insert(id, SessionEntry{ data, expires_ms: now_ms + @ttl_ms })
-    g.unlock()
-    Ok(())
-}
+/// In-memory `SessionStore` handler factory: `HashMap` under a `Mutex`
+/// (fiber-safe), lazy TTL eviction on `load`. Every saved session lives
+/// `ttl_ms` from its save time. NO `#default_handler` (unlike `Log`/`Time`):
+/// per §Q2, `SessionStore` is a resource a production caller must explicitly
+/// choose — install with `with SessionStore = memory_session_store(ttl_ms) {
+/// ... }` around `serve`/router dispatch (the `mock_http()`/`real_http()`
+/// triad shape; tests install the SAME factory, or a hand-rolled test
+/// double, the same way).
+///
+/// TTL clock: read via the RAW `Time.now()` op (design-note §2 — the same
+/// raw-op discipline `log.nv`'s `Log.info`/`.error` rely on), so this
+/// factory itself carries NO `Time` row — production sees the real clock
+/// ambient default (D431), tests wrap the INSTALLING `with` in
+/// `with Time = th.fixed_ms(...) { ... }` / `th.mut_clock(...)`.
+#stable(since = "0.1")
+export fn memory_session_store(ttl_ms u64) -> Effect[SessionStore] {
+    mut mu = Mutex.new()
+    mut map = HashMap[str, SessionEntry].new()
 
-#impl(SessionStore)
-export fn MemorySessionStore mut @destroy(id str) -> Result[(), HttpError] {
-    mut mu = @mu
-    consume g = mu.lock()
-    ro _ = @map.remove(id)
-    g.unlock()
-    Ok(())
+    effect SessionStore {
+        load(id str) -> Result[Option[SessionData], HttpError] {
+            consume g = mu.lock()
+            // Explicit unlock at the single exit (not `defer` — D133's
+            // consume-tracking does not credit a defer'd `.unlock()` in this
+            // shape; sync_test.nv:108 form).
+            ro now_ms = Time.now().unix_millis() as u64
+            ro out = match map.get(id) {
+                Some(e) => {
+                    if now_ms >= e.expires_ms {
+                        ro _ = map.remove(id)   // lazy TTL eviction
+                        Ok(none_session())
+                    } else {
+                        Ok(Some(e.data))
+                    }
+                }
+                None => Ok(none_session())
+            }
+            g.unlock()
+            out
+        }
+        save(id str, data SessionData) -> Result[(), HttpError] {
+            consume g = mu.lock()
+            ro now_ms = Time.now().unix_millis() as u64
+            ro _ = map.insert(id, SessionEntry{ data, expires_ms: now_ms + ttl_ms })
+            g.unlock()
+            Ok(())
+        }
+        destroy(id str) -> Result[(), HttpError] {
+            consume g = mu.lock()
+            ro _ = map.remove(id)
+            g.unlock()
+            Ok(())
+        }
+    }
 }
 
 /// Session cookie policy. SECURE DEFAULTS (plan §4): `http_only=true`,
@@ -480,7 +515,17 @@ fn session_id_of(req ServerRequest, cookie_name str) -> Option[str] {
 // `none_cookie_str` in cookie.nv / `none_session` above).
 fn none_str() -> Option[str] => None
 
-// session_layer body — hoisted top-level fn, ONE capture level per closure
+// Fresh session-id entropy: 16 random bytes (128 bit), hex-encoded. `Random`
+// row (Plan 222.20 Ф.3 Волна B, §Q4): ordinary row-checked usage, same shape
+// as `Uuid.v4()`'s own `Random.u64()` calls (identifiers/uuid.nv) — this fn
+// is called from a closure built inside `session_layer`'s own
+// `Random`-declaring constructor, not from a plain `Handler` body. Strength
+// is `Random`'s HANDLER's duty (CSPRNG in prod — `Random` has no `real_*()`
+// ctor yet, D431 Ф.2-v4 П9 open question; `with Random = th.seeded(...)` in
+// tests).
+fn fresh_session_id() Random -> str => Hex.encode(Random.bytes(16))
+
+// session_apply body — hoisted top-level fn, ONE capture level per closure
 // ([M-16], same shape as jwt_guard_apply above). `next` arrives as a PARAM —
 // `next(r2)` is the safe D52 param call-through. Takes the config UNPACKED
 // into scalars, NOT the `SessionConfig` value: capturing a value-STRUCT param
@@ -492,14 +537,15 @@ fn none_str() -> Option[str] => None
 // a record literal inside the closure is missed by closure capture analysis —
 // `use of undeclared identifier` in emitted C; explicit `field: name` with
 // distinct names captures fine.)
-// `store`/`req` are both `mut` (D246 canon (a)): `store` is the SHARED
-// session store (`.save()` mutation must be visible on the NEXT request,
-// same rationale as `ratelimit.nv`'s bucket table — not an independent-copy
-// case); `req` is a plain in-out passthrough (`session_layer`'s closure
-// below hands its own `mut req` through exactly once, per branch).
-fn session_apply(mut store MemorySessionStore, cookie_name str, ttl_s int, sec bool,
-                 honly bool, ssite SameSite, now_fn fn() -> u64,
-                 id_gen fn() -> str, next Handler, mut req ServerRequest) -> ServerResponse {
+// `req` is `mut` (D246 canon (a)): a plain in-out passthrough
+// (`session_layer`'s closure below hands its own `mut req` through exactly
+// once, per branch). `store` is GONE (Plan 222.20 Ф.3 Волна B, §Q2
+// design-note "Совместимость с session_layer") — `SessionStore.save(...)`
+// below is a RAW op (design-note §0 Ф-C / `log.nv`'s own raw-op discipline),
+// resolved against whatever `with SessionStore = ...` is active at request
+// time, so this fn's row stays `Random` only (no `SessionStore`, no `Time`).
+fn session_apply(cookie_name str, ttl_s int, sec bool, honly bool, ssite SameSite,
+                 next Handler, mut req ServerRequest) Random -> ServerResponse {
     match session_id_of(req, cookie_name) {
         Some(sid) => {
             // Existing session cookie: expose the id to the handler via
@@ -512,8 +558,8 @@ fn session_apply(mut store MemorySessionStore, cookie_name str, ttl_s int, sec b
         None => {
             // No cookie: mint an id, eager-save an empty session, tell
             // the client (Set-Cookie with the config's secure defaults).
-            ro sid = id_gen()
-            ro _ = store.save(sid, SessionData.new(), now_fn())
+            ro sid = fresh_session_id()
+            ro _ = SessionStore.save(sid, SessionData.new())
             mut ps = req.params
             ps.push(("session_id", sid))
             req.params(ps)
@@ -530,31 +576,24 @@ fn session_apply(mut store MemorySessionStore, cookie_name str, ttl_s int, sec b
 
 /// Session middleware (222.4 core): guarantees every request reaches the
 /// handler with a `("session_id", sid)` param — read it via
-/// `req.param("session_id")`; load/mutate data through the shared store
-/// (`@load`/`@save` with the same clock). New visitors get an empty session
-/// EAGER-saved + a `Set-Cookie` per `cfg` (secure defaults). SKELETON scope:
-/// concrete `MemorySessionStore` (a `[S SessionStore]`-generic layer is the
-/// follow-up once generic-capture codegen is proven safe); `id_gen` supplies
-/// session-id entropy — its strength is the caller's responsibility.
+/// `req.param("session_id")`; load/mutate data through the ambient
+/// `SessionStore` effect (`SessionStore.load`/`.save`, called as raw ops —
+/// install a handler with `with SessionStore = memory_session_store(ttl_ms)
+/// { ... }` around dispatch, Plan 222.20 Ф.3 Волна B §Q2). New visitors get
+/// an empty session EAGER-saved + a `Set-Cookie` per `cfg` (secure
+/// defaults). `store` is NO LONGER a parameter (§Q2 "Совместимость с
+/// session_layer" — clean cutover, Правило 4 forbids a name being both
+/// protocol and effect at once, so there is no transitional two-API period).
+/// `Random` row supplies session-id entropy (§Q4) — its cryptographic
+/// strength is the installed handler's responsibility.
 #stable(since = "0.1")
-// `store` is `mut` (D246 canon (a)): captured into the closure below and
-// threaded through as a `mut` in-out param (shared, mutating store) on every
-// request; the one caller (`auth_test.nv`) never reuses its own binding
-// after passing it here.
-export fn session_layer(mut store MemorySessionStore, cfg SessionConfig, now_fn fn() -> u64,
-                        id_gen fn() -> str) -> Middleware {
-    // Unpack OUTSIDE the closures (see session_handler note).
+export fn session_layer(cfg SessionConfig) Random -> Middleware {
+    // Unpack OUTSIDE the closure (see session_apply note).
     ro cookie_name = cfg.cookie_name
     ro ttl_s = (cfg.ttl_ms / 1000) as int
     ro sec = cfg.secure
     ro honly = cfg.http_only
     ro ssite = cfg.same_site
-    // `mut` (not `ro`): the SHARED session store, threaded into `session_
-    // apply` as a `mut` in-out param every request (see that fn's own
-    // comment) — mirrors `ratelimit.nv`'s bucket table.
-    mut st = store
-    ro nf = now_fn
-    ro ig = id_gen
     middleware(fn(mut req ServerRequest, next Handler) -> ServerResponse =>
-        session_apply(st, cookie_name, ttl_s, sec, honly, ssite, nf, ig, next, req))
+        session_apply(cookie_name, ttl_s, sec, honly, ssite, next, req))
 }

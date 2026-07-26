@@ -5,8 +5,8 @@
 Строительные блоки auth — extractors и middleware, не собственный фреймворк:
 extractors заголовков `Bearer`/`BasicAuth`, `JwtClaims[T]` поверх HS256 JWT
 из `std` (Polaris оборачивает его, не переизобретает никакую криптографию),
-extractor `CookieJar` + хелпер `Set-Cookie`, и **скелет** сессий (протокол
-`SessionStore` + in-memory реализация + middleware `session_layer`).
+extractor `CookieJar` + хелпер `Set-Cookie`, и **скелет** сессий (эффект
+`SessionStore` + in-memory handler + middleware `session_layer`).
 
 Исходник: [`src/auth.nv`](../src/auth.nv).
 
@@ -74,36 +74,38 @@ test "auth: BasicAuth extractor decodes user:pass" {
 type AuthClaims value { ro sub str }
 
 test "auth: require_jwt middleware guard + JwtAuth.claims_at[T] inside the handler" {
-    ro secret = "sample-secret".bytes()
-    ro auth = JwtAuth.new(secret)
-    mut r = Router.new()
-    r.layer(require_jwt(auth, fn() -> u64 => 1_500_000_000))
-    r.get("/me", fn(req ServerRequest) -> ServerResponse {
-        match auth.claims_at[AuthClaims](req, 1_500_000_000) {
-            Ok(c)  => ServerResponse.text(StatusCode.OK, "sub=${c.claims().sub}")
-            Err(e) => e.into_response()
-        }
-    })!!
-    assert(status_line(serve_once(r, get_req("/me"))) == "HTTP/1.1 401 Unauthorized")
+    with Time = th.fixed_ms(1_500_000_000) {
+        ro secret = "sample-secret".bytes()
+        ro auth = JwtAuth.new(secret)
+        mut r = Router.new()
+        r.layer(require_jwt(auth))
+        r.get("/me", fn(req ServerRequest) -> ServerResponse {
+            match auth.claims_at[AuthClaims](req, 1_500_000_000) {
+                Ok(c)  => ServerResponse.text(StatusCode.OK, "sub=${c.claims().sub}")
+                Err(e) => e.into_response()
+            }
+        })!!
+        assert(status_line(serve_once(r, get_req("/me"))) == "HTTP/1.1 401 Unauthorized")
+    }
 }
 ```
 
 `JwtAuth.new(secret)` строит HS256-верификатор. Два способа применения,
 которые компонуются, а не мешают друг другу:
 
-- `require_jwt(auth, now_fn)` — middleware-проверка: отклоняет любой запрос,
-  чей `Authorization: Bearer` не прошёл проверку подписи или `exp`/`nbf`, с
-  `401` + `WWW-Authenticate: Bearer`; проверенные запросы пропускает без
-  изменений.
+- `require_jwt(auth) Time -> Middleware` — middleware-проверка: отклоняет
+  любой запрос, чей `Authorization: Bearer` не прошёл проверку подписи или
+  `exp`/`nbf`, с `401` + `WWW-Authenticate: Bearer`; проверенные запросы
+  пропускает без изменений. Часы приходят из эффекта `Time` — в production
+  реальные часы (ambient default-хендлер), в тестах —
+  `with Time = th.fixed_ms(now_ms) { ... }` (как выше).
 - `auth.claims_at[T](req, now_ms)` — вызов внутри хендлера (turbofish,
   метод-уровневый generic), извлекающий + проверяющий + декодирующий
-  типизированные claims в `T`.
-
-Обоим нужны явные часы (`now_fn`/`now_ms`), а не эффект `Time`: `Handler` —
-это обычная `fn(ServerRequest) -> ServerResponse` без эффект-ряда, поэтому
-тело хендлера само не может вызвать эффектную функцию — production-код
-передаёт замыкание-часы на реальном времени, тесты — фиксированное (как
-выше), что делает каждый JWT-тест полностью детерминированным.
+  типизированные claims в `T`. Этому по-прежнему нужны **явные** часы
+  (`now_ms`), не `Time`: он выполняется внутри реального тела `Handler`
+  (`fn(ServerRequest) -> ServerResponse`, без эффект-ряда), поэтому сам
+  вызвать эффектную функцию не может — та же причина, по которой раньше жил
+  и `require_jwt`, до переезда на `Time` (План 222.20 Ф.3 Волна B).
 
 `T` **обязан** отключить строгую по умолчанию проверку полей serde через
 `#serde(allow_unknown)` — реальный payload JWT всегда несёт
@@ -146,44 +148,50 @@ test "auth: CookieJar + Set-Cookie round-trip" {
 
 ```nova
 test "auth: session_layer assigns + persists a session id via cookie" {
-    mut store = MemorySessionStore.new(60_000)
-    ro cfg = SessionConfig.new().with_cookie_name("sess")
-    mut r = Router.new()
-    r.layer(session_layer(store, cfg, fn() -> u64 => 1_000, fn() -> str => "gen-1"))
-    r.get("/s", fn(req ServerRequest) -> ServerResponse {
-        ro sid = req.param("session_id") ?? "?"
-        ServerResponse.text(StatusCode.OK, "sid=${sid}")
-    })!!
+    with Time = th.fixed_ms(1_000), Random = th.seeded(7), SessionStore = memory_session_store(60_000) {
+        ro cfg = SessionConfig.new().with_cookie_name("sess")
+        mut r = Router.new()
+        r.layer(session_layer(cfg))
+        r.get("/s", fn(req ServerRequest) -> ServerResponse {
+            ro sid = req.param("session_id") ?? "?"
+            ServerResponse.text(StatusCode.OK, "sid=${sid}")
+        })!!
 
-    ro first = serve_once(r, get_req("/s"))
-    assert(wire_str(first).contains("sid=gen-1"))
-    assert(wire_str(first).contains("set-cookie: sess=gen-1"))
-    ro second = serve_once(r, get_req_h("/s", "Cookie", "sess=have-7"))
-    assert(wire_str(second).contains("sid=have-7"))
-    assert(!wire_str(second).contains("set-cookie"))
+        ro first = serve_once(r, get_req("/s"))
+        assert(wire_str(first).contains("set-cookie: sess="))
+        ro second = serve_once(r, get_req_h("/s", "Cookie", "sess=have-7"))
+        assert(wire_str(second).contains("sid=have-7"))
+        assert(!wire_str(second).contains("set-cookie"))
+    }
 }
 ```
 
-`session_layer(store, cfg, now_fn, id_gen)` гарантирует, что каждый запрос
+`session_layer(cfg) Random -> Middleware` гарантирует, что каждый запрос
 доходит до хендлера со значением `session_id`, доступным **по каналу
 path-параметров** — читайте через `req.param("session_id")`, тем же
 каналом, что используют `{name}`-сегменты пути. Запрос без cookie сессии
-получает свежий id (от `id_gen`), eager-сохранение пустой сессии и
-`Set-Cookie` с безопасными дефолтами `SessionConfig` (`HttpOnly` +
-`Secure` + `SameSite=Lax`); запрос с существующей cookie получает свой id
-без нового `Set-Cookie`.
+получает свежий id (16 случайных байт, hex-encoded через эффект `Random`),
+eager-сохранение пустой сессии и `Set-Cookie` с безопасными дефолтами
+`SessionConfig` (`HttpOnly` + `Secure` + `SameSite=Lax`); запрос с
+существующей cookie получает свой id без нового `Set-Cookie`.
 
-`MemorySessionStore` (`HashMap` под `Mutex`, fiber-safe) — единственная
-конкретная реализация `SessionStore` в скелете: save/load/destroy по id,
-lazy TTL-вытеснение при `@load`. `SessionData` — плоский `str → str`
-key/value (`@get(key)`/`mut @set(key, v)`). Сам `SessionStore` — протокол —
-реализуйте его поверх Redis/базы данных для production; каждый метод
-принимает явные часы по той же причине, что и `JwtAuth` выше.
+`SessionStore` — **эффект** (План 222.20 Ф.3 Волна B), не протокол:
+учебниковый случай подмены ресурса — production подключает Redis/базу
+данных, тесты — in-memory (или самописный double), оба через
+`with SessionStore = ... { ... }` вокруг диспетчеризации.
+`memory_session_store(ttl_ms)` — единственная встроенная фабрика-хендлер
+скелета: `HashMap` под `Mutex` (fiber-safe), lazy TTL-вытеснение при
+`load`, часы читает из эффекта `Time` изнутри самого хендлера (никакого
+`now_ms` в поверхности `SessionStore` больше нет). В отличие от
+`Time`/`Log`, у `SessionStore` **нет ambient default-хендлера** — это
+ресурс, который production обязан подключить явно, точно как
+`mock_http()`/`real_http()`, а не всегда-безопасный дефолт вроде stdout.
+`SessionData` — плоский `str → str` key/value
+(`@get(key)`/`mut @set(key, v)`), без изменений.
 
 Это осознанно **скелет**, не законченная подсистема сессий — что дальше —
-см. [roadmap.md](roadmap.ru.md) (обобщённый слой
-`[S SessionStore]`, отложенный до подтверждения безопасности
-generic-захвата в кодогене для этой формы).
+см. [roadmap.md](roadmap.ru.md) (обобщённый multi-backend слой, отложенный
+до подтверждения безопасности generic-захвата в кодогене для этой формы).
 
 ## Связанные документы
 
