@@ -22,7 +22,7 @@ module polaris.doc_samples_test
 import polaris.{Router, get, post, ServerRequest, ServerResponse, Handler, Middleware, middleware}
 import polaris.{Json, PathParam, Query, Bytes, Text, Headers, Multipart}
 import polaris.{Bearer, BasicAuth, JwtAuth, JwtClaims, CookieJar}
-import polaris.{MemorySessionStore, SessionConfig, session_layer, require_jwt}
+import polaris.{SessionStore, memory_session_store, SessionConfig, session_layer, require_jwt}
 import polaris.{BackgroundTasks, StreamBody, sse_event, WebSocketUpgrade}
 import polaris.{serve_once, route_once, capture_log, Log}
 import polaris.ws.{WebSocket, Message}
@@ -429,17 +429,19 @@ test "auth: BasicAuth extractor decodes user:pass" {
 type AuthClaims value { ro sub str }
 
 test "auth: require_jwt middleware guard + JwtAuth.claims_at[T] inside the handler" {
-    ro secret = "sample-secret".bytes()
-    ro auth = JwtAuth.new(secret)
-    mut r = Router.new()
-    r.layer(require_jwt(auth, fn() -> u64 => 1_500_000_000))
-    r.get("/me", fn(req ServerRequest) -> ServerResponse {
-        match auth.claims_at[AuthClaims](req, 1_500_000_000) {
-            Ok(c)  => ServerResponse.text(StatusCode.OK, "sub=${c.claims().sub}")
-            Err(e) => e.into_response()
-        }
-    })!!
-    assert(status_line(serve_once(r, get_req("/me"))) == "HTTP/1.1 401 Unauthorized")
+    with Time = th.fixed_ms(1_500_000_000) {
+        ro secret = "sample-secret".bytes()
+        ro auth = JwtAuth.new(secret)
+        mut r = Router.new()
+        r.layer(require_jwt(auth))
+        r.get("/me", fn(req ServerRequest) -> ServerResponse {
+            match auth.claims_at[AuthClaims](req, 1_500_000_000) {
+                Ok(c)  => ServerResponse.text(StatusCode.OK, "sub=${c.claims().sub}")
+                Err(e) => e.into_response()
+            }
+        })!!
+        assert(status_line(serve_once(r, get_req("/me"))) == "HTTP/1.1 401 Unauthorized")
+    }
 }
 
 test "auth: CookieJar + Set-Cookie round-trip" {
@@ -464,21 +466,21 @@ test "auth: CookieJar + Set-Cookie round-trip" {
 }
 
 test "auth: session_layer assigns + persists a session id via cookie" {
-    mut store = MemorySessionStore.new(60_000)
-    ro cfg = SessionConfig.new().with_cookie_name("sess")
-    mut r = Router.new()
-    r.layer(session_layer(store, cfg, fn() -> u64 => 1_000, fn() -> str => "gen-1"))
-    r.get("/s", fn(req ServerRequest) -> ServerResponse {
-        ro sid = req.param("session_id") ?? "?"
-        ServerResponse.text(StatusCode.OK, "sid=${sid}")
-    })!!
+    with Time = th.fixed_ms(1_000), Random = th.seeded(7), SessionStore = memory_session_store(60_000) {
+        ro cfg = SessionConfig.new().with_cookie_name("sess")
+        mut r = Router.new()
+        r.layer(session_layer(cfg))
+        r.get("/s", fn(req ServerRequest) -> ServerResponse {
+            ro sid = req.param("session_id") ?? "?"
+            ServerResponse.text(StatusCode.OK, "sid=${sid}")
+        })!!
 
-    ro first = serve_once(r, get_req("/s"))
-    assert(wire_str(first).contains("sid=gen-1"))
-    assert(wire_str(first).contains("set-cookie: sess=gen-1"))
-    ro second = serve_once(r, get_req_h("/s", "Cookie", "sess=have-7"))
-    assert(wire_str(second).contains("sid=have-7"))
-    assert(!wire_str(second).contains("set-cookie"))
+        ro first = serve_once(r, get_req("/s"))
+        assert(wire_str(first).contains("set-cookie: sess="))
+        ro second = serve_once(r, get_req_h("/s", "Cookie", "sess=have-7"))
+        assert(wire_str(second).contains("sid=have-7"))
+        assert(!wire_str(second).contains("set-cookie"))
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════

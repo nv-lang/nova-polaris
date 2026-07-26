@@ -16,7 +16,9 @@ import http.{SetCookie}
 import std.collections.hashmap.{HashMap}
 import std.crypto.jwt.{Jwt}
 import std.encoding.base64.{Base64}
+import std.encoding.hex.{Hex}
 import std.encoding.json.{JsonValue}
+import std.testing.handlers as th
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -137,31 +139,37 @@ test "JwtClaims: valid token (exp in future) -> typed claims" {
 
 // ── Ф.2: require_jwt middleware guard ──────────────────────────────────────
 
-fn guarded_router(now_ms u64) -> Router {
+fn guarded_router() Time -> Router {
     ro auth = JwtAuth.new(test_secret())
     mut r = Router.new()
-    r.layer(require_jwt(auth, fn() -> u64 => now_ms))
+    r.layer(require_jwt(auth))
     r.get("/private", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(200, "in"))!!
     r
 }
 
 test "require_jwt: valid token passes through to the handler" {
-    ro tok = make_token(test_secret(), "u", 2_000_000.0)
-    ro wire = serve_once(guarded_router(1_500_000_000), get_req_h("/private", "Authorization", "Bearer ${tok}"))
-    assert(status_line(wire) == "HTTP/1.1 200 OK")
-    assert(resp_contains(wire, "in"))
+    with Time = th.fixed_ms(1_500_000_000) {
+        ro tok = make_token(test_secret(), "u", 2_000_000.0)
+        ro wire = serve_once(guarded_router(), get_req_h("/private", "Authorization", "Bearer ${tok}"))
+        assert(status_line(wire) == "HTTP/1.1 200 OK")
+        assert(resp_contains(wire, "in"))
+    }
 }
 
 test "require_jwt: no token -> 401 + WWW-Authenticate: Bearer" {
-    ro wire = serve_once(guarded_router(1_500_000_000), get_req("/private"))
-    assert(status_line(wire) == "HTTP/1.1 401 Unauthorized")
-    assert(resp_contains(wire, "www-authenticate: Bearer"))
+    with Time = th.fixed_ms(1_500_000_000) {
+        ro wire = serve_once(guarded_router(), get_req("/private"))
+        assert(status_line(wire) == "HTTP/1.1 401 Unauthorized")
+        assert(resp_contains(wire, "www-authenticate: Bearer"))
+    }
 }
 
 test "require_jwt: expired token -> 401" {
-    ro tok = make_token(test_secret(), "u", 1_000_000.0)
-    ro wire = serve_once(guarded_router(1_500_000_000), get_req_h("/private", "Authorization", "Bearer ${tok}"))
-    assert(status_line(wire) == "HTTP/1.1 401 Unauthorized")
+    with Time = th.fixed_ms(1_500_000_000) {
+        ro tok = make_token(test_secret(), "u", 1_000_000.0)
+        ro wire = serve_once(guarded_router(), get_req_h("/private", "Authorization", "Bearer ${tok}"))
+        assert(status_line(wire) == "HTTP/1.1 401 Unauthorized")
+    }
 }
 
 // ── CookieJar + Set-Cookie round-trip ──────────────────────────────────────
@@ -212,31 +220,49 @@ test "set_cookie: Set-Cookie header serialized onto the response wire" {
 }
 
 // ── Ф.3: sessions — store unit tests ───────────────────────────────────────
+// `SessionStore` is an EFFECT now (Plan 222.20 Ф.3 Волна B, §Q2) — no more
+// explicit `now_ms` param; the TTL clock is controlled per-call via
+// `with Time = th.fixed_ms(...) { ... }` nested INSIDE the outer
+// `with SessionStore = memory_session_store(ttl_ms) { ... }` install (the
+// handler itself reads the clock via a raw `Time.now()` op, see auth.nv).
 
-test "MemorySessionStore: save/load round-trip within TTL" {
-    mut st = MemorySessionStore.new(10_000)     // 10s TTL
-    mut d = SessionData.new()
-    d.set("user", "alice")
-    st.save("s1", d, 1_000)!!
-    match st.load("s1", 5_000)!! {
-        Some(got) => assert(got.get("user") == Some("alice"))
-        None      => assert(false)
+test "memory_session_store: save/load round-trip within TTL" {
+    with SessionStore = memory_session_store(10_000) {     // 10s TTL
+        mut d = SessionData.new()
+        d.set("user", "alice")
+        with Time = th.fixed_ms(1_000) { SessionStore.save("s1", d)!! }
+        with Time = th.fixed_ms(5_000) {
+            match SessionStore.load("s1")!! {
+                Some(got) => assert(got.get("user") == Some("alice"))
+                None      => assert(false)
+            }
+        }
     }
 }
 
-test "MemorySessionStore: expired entry -> None (lazy TTL eviction)" {
-    mut st = MemorySessionStore.new(10_000)
-    st.save("s1", SessionData.new(), 1_000)!!    // expires at 11_000
-    assert(match st.load("s1", 11_000)!! { None => true, Some(_) => false })
-    // and it was evicted, not just hidden: an earlier clock still sees nothing
-    assert(match st.load("s1", 2_000)!! { None => true, Some(_) => false })
+test "memory_session_store: expired entry -> None (lazy TTL eviction)" {
+    with SessionStore = memory_session_store(10_000) {
+        with Time = th.fixed_ms(1_000) {
+            SessionStore.save("s1", SessionData.new())!!    // expires at 11_000
+        }
+        with Time = th.fixed_ms(11_000) {
+            assert(match SessionStore.load("s1")!! { None => true, Some(_) => false })
+        }
+        // and it was evicted, not just hidden: an earlier clock still sees nothing
+        with Time = th.fixed_ms(2_000) {
+            assert(match SessionStore.load("s1")!! { None => true, Some(_) => false })
+        }
+    }
 }
 
-test "MemorySessionStore: destroy removes the session" {
-    mut st = MemorySessionStore.new(10_000)
-    st.save("s1", SessionData.new(), 1_000)!!
-    st.destroy("s1")!!
-    assert(match st.load("s1", 2_000)!! { None => true, Some(_) => false })
+test "memory_session_store: destroy removes the session" {
+    with SessionStore = memory_session_store(10_000) {
+        with Time = th.fixed_ms(1_000) { SessionStore.save("s1", SessionData.new())!! }
+        SessionStore.destroy("s1")!!
+        with Time = th.fixed_ms(2_000) {
+            assert(match SessionStore.load("s1")!! { None => true, Some(_) => false })
+        }
+    }
 }
 
 test "SessionData: set replaces an existing key" {
@@ -248,14 +274,17 @@ test "SessionData: set replaces an existing key" {
 }
 
 // ── Ф.3: session_layer middleware e2e ──────────────────────────────────────
+// `store` is NO LONGER a param (Plan 222.20 Ф.3 Волна B, §Q2 — clean
+// cutover) — installed dynamically via `with SessionStore =
+// memory_session_store(ttl_ms) { ... }` around BOTH router construction
+// (`session_layer(cfg) Random -> Middleware` reads the row at build time)
+// and request serving (`SessionStore.save`/`.load` raw ops resolve against
+// whatever is active at CALL time).
 
-fn session_router() -> Router {
-    // `mut` (not `ro`): `session_layer` takes `store` as a `mut` in-out
-    // param (D246 canon (a), see its own comment) — never reused after.
-    mut store = MemorySessionStore.new(60_000)
+fn session_router() Random -> Router {
     ro cfg = SessionConfig.new().with_cookie_name("sess")
     mut r = Router.new()
-    r.layer(session_layer(store, cfg, fn() -> u64 => 1_000, fn() -> str => "gen-1"))
+    r.layer(session_layer(cfg))
     r.get("/s", fn(req ServerRequest) -> ServerResponse {
         match req.param("session_id") {
             Some(sid) => ServerResponse.text(200, "sid=${sid}")
@@ -266,19 +295,28 @@ fn session_router() -> Router {
 }
 
 test "session_layer: no cookie -> id generated, injected, Set-Cookie with secure defaults" {
-    ro wire = serve_once(session_router(), get_req("/s"))
-    assert(status_line(wire) == "HTTP/1.1 200 OK")
-    assert(resp_contains(wire, "sid=gen-1"))
-    assert(resp_contains(wire, "set-cookie: sess=gen-1"))
-    // plan §4 safe defaults must be on the wire
-    assert(resp_contains(wire, "Secure"))
-    assert(resp_contains(wire, "HttpOnly"))
-    assert(resp_contains(wire, "SameSite=Lax"))
+    // Same-seed determinism (uuid_test.nv's own `th.seeded` precedent):
+    // compute the expected 16-byte-hex id independently, then assert the
+    // router (built + served under a FRESH same-seed `Random`) mints
+    // exactly that id.
+    ro expected_id = with Random = th.seeded(42) { Hex.encode(Random.bytes(16)) }
+    with Time = th.fixed_ms(0), Random = th.seeded(42), SessionStore = memory_session_store(60_000) {
+        ro wire = serve_once(session_router(), get_req("/s"))
+        assert(status_line(wire) == "HTTP/1.1 200 OK")
+        assert(resp_contains(wire, "sid=${expected_id}"))
+        assert(resp_contains(wire, "set-cookie: sess=${expected_id}"))
+        // plan §4 safe defaults must be on the wire
+        assert(resp_contains(wire, "Secure"))
+        assert(resp_contains(wire, "HttpOnly"))
+        assert(resp_contains(wire, "SameSite=Lax"))
+    }
 }
 
 test "session_layer: existing cookie -> its id injected, no new Set-Cookie" {
-    ro wire = serve_once(session_router(), get_req_h("/s", "Cookie", "sess=have-7"))
-    assert(status_line(wire) == "HTTP/1.1 200 OK")
-    assert(resp_contains(wire, "sid=have-7"))
-    assert(!resp_contains(wire, "set-cookie"))
+    with Time = th.fixed_ms(0), Random = th.seeded(42), SessionStore = memory_session_store(60_000) {
+        ro wire = serve_once(session_router(), get_req_h("/s", "Cookie", "sess=have-7"))
+        assert(status_line(wire) == "HTTP/1.1 200 OK")
+        assert(resp_contains(wire, "sid=have-7"))
+        assert(!resp_contains(wire, "set-cookie"))
+    }
 }

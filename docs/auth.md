@@ -6,8 +6,7 @@ Auth building blocks — extractors and middleware, not a framework of their
 own: `Bearer`/`BasicAuth` header extractors, `JwtClaims[T]` over `std`'s
 HS256 JWT (Polaris wraps it, it does not reimplement any crypto), a
 `CookieJar` extractor + `Set-Cookie` helper, and a sessions **skeleton**
-(`SessionStore` protocol + an in-memory implementation + `session_layer`
-middleware).
+(`SessionStore` effect + an in-memory handler + `session_layer` middleware).
 
 Source: [`src/auth.nv`](../src/auth.nv).
 
@@ -75,35 +74,38 @@ are all `401`.
 type AuthClaims value { ro sub str }
 
 test "auth: require_jwt middleware guard + JwtAuth.claims_at[T] inside the handler" {
-    ro secret = "sample-secret".bytes()
-    ro auth = JwtAuth.new(secret)
-    mut r = Router.new()
-    r.layer(require_jwt(auth, fn() -> u64 => 1_500_000_000))
-    r.get("/me", fn(req ServerRequest) -> ServerResponse {
-        match auth.claims_at[AuthClaims](req, 1_500_000_000) {
-            Ok(c)  => ServerResponse.text(StatusCode.OK, "sub=${c.claims().sub}")
-            Err(e) => e.into_response()
-        }
-    })!!
-    assert(status_line(serve_once(r, get_req("/me"))) == "HTTP/1.1 401 Unauthorized")
+    with Time = th.fixed_ms(1_500_000_000) {
+        ro secret = "sample-secret".bytes()
+        ro auth = JwtAuth.new(secret)
+        mut r = Router.new()
+        r.layer(require_jwt(auth))
+        r.get("/me", fn(req ServerRequest) -> ServerResponse {
+            match auth.claims_at[AuthClaims](req, 1_500_000_000) {
+                Ok(c)  => ServerResponse.text(StatusCode.OK, "sub=${c.claims().sub}")
+                Err(e) => e.into_response()
+            }
+        })!!
+        assert(status_line(serve_once(r, get_req("/me"))) == "HTTP/1.1 401 Unauthorized")
+    }
 }
 ```
 
 `JwtAuth.new(secret)` builds an HS256 verifier config. Two ways to use it,
 composing rather than fighting each other:
 
-- `require_jwt(auth, now_fn)` — a **middleware** guard: rejects any request
-  whose `Authorization: Bearer` token fails signature or `exp`/`nbf`
-  validation with `401` + `WWW-Authenticate: Bearer`, passes verified
-  requests through untouched.
+- `require_jwt(auth) Time -> Middleware` — a **middleware** guard: rejects
+  any request whose `Authorization: Bearer` token fails signature or
+  `exp`/`nbf` validation with `401` + `WWW-Authenticate: Bearer`, passes
+  verified requests through untouched. The clock comes from the `Time`
+  effect — production sees the real clock (ambient default handler), tests
+  wrap with `with Time = th.fixed_ms(now_ms) { ... }` (as above).
 - `auth.claims_at[T](req, now_ms)` — an in-handler call (turbofish, method-
   level generic) that extracts + verifies + decodes typed claims into `T`.
-
-Both need an explicit clock (`now_fn`/`now_ms`) rather than the `Time`
-effect: `Handler` is a plain `fn(ServerRequest) -> ServerResponse` with no
-effect row, so a handler body cannot itself perform an effectful call —
-production code passes a real clock closure, tests pass a fixed one (as
-above), keeping every JWT test fully deterministic.
+  This one still takes an **explicit** `now_ms`, not `Time`: it runs inside a
+  real `Handler` body (`fn(ServerRequest) -> ServerResponse`, no effect row),
+  so it cannot itself perform an effectful call — the same reasoning
+  `require_jwt` used to follow before it moved to `Time` (Plan 222.20 Ф.3
+  Волна B).
 
 `T` **must** opt out of serde's strict-by-default field checking with
 `#serde(allow_unknown)` — a real JWT payload always carries registered
@@ -145,42 +147,49 @@ response are legal and common — this is not `resp.header`, which replaces).
 
 ```nova
 test "auth: session_layer assigns + persists a session id via cookie" {
-    mut store = MemorySessionStore.new(60_000)
-    ro cfg = SessionConfig.new().with_cookie_name("sess")
-    mut r = Router.new()
-    r.layer(session_layer(store, cfg, fn() -> u64 => 1_000, fn() -> str => "gen-1"))
-    r.get("/s", fn(req ServerRequest) -> ServerResponse {
-        ro sid = req.param("session_id") ?? "?"
-        ServerResponse.text(StatusCode.OK, "sid=${sid}")
-    })!!
+    with Time = th.fixed_ms(1_000), Random = th.seeded(7), SessionStore = memory_session_store(60_000) {
+        ro cfg = SessionConfig.new().with_cookie_name("sess")
+        mut r = Router.new()
+        r.layer(session_layer(cfg))
+        r.get("/s", fn(req ServerRequest) -> ServerResponse {
+            ro sid = req.param("session_id") ?? "?"
+            ServerResponse.text(StatusCode.OK, "sid=${sid}")
+        })!!
 
-    ro first = serve_once(r, get_req("/s"))
-    assert(wire_str(first).contains("sid=gen-1"))
-    assert(wire_str(first).contains("set-cookie: sess=gen-1"))
-    ro second = serve_once(r, get_req_h("/s", "Cookie", "sess=have-7"))
-    assert(wire_str(second).contains("sid=have-7"))
-    assert(!wire_str(second).contains("set-cookie"))
+        ro first = serve_once(r, get_req("/s"))
+        assert(wire_str(first).contains("set-cookie: sess="))
+        ro second = serve_once(r, get_req_h("/s", "Cookie", "sess=have-7"))
+        assert(wire_str(second).contains("sid=have-7"))
+        assert(!wire_str(second).contains("set-cookie"))
+    }
 }
 ```
 
-`session_layer(store, cfg, now_fn, id_gen)` guarantees every request reaches
+`session_layer(cfg) Random -> Middleware` guarantees every request reaches
 its handler with a `session_id` **path-param-style** value — read it with
 `req.param("session_id")`, the same channel `{name}` path segments use. A
-request with no session cookie gets a fresh id (from `id_gen`), an eager
-empty session save, and a `Set-Cookie` with `SessionConfig`'s secure
-defaults (`HttpOnly` + `Secure` + `SameSite=Lax`); a request with an
-existing cookie gets its id injected with no new `Set-Cookie`.
+request with no session cookie gets a fresh id (16 random bytes,
+hex-encoded via the `Random` effect), an eager empty session save, and a
+`Set-Cookie` with `SessionConfig`'s secure defaults (`HttpOnly` + `Secure` +
+`SameSite=Lax`); a request with an existing cookie gets its id injected with
+no new `Set-Cookie`.
 
-`MemorySessionStore` (`HashMap` behind a `Mutex`, fiber-safe) is the
-skeleton's one concrete `SessionStore` — save/load/destroy by id, lazy TTL
-eviction on `@load`. `SessionData` is flat `str → str` key/value
-(`@get(key)`/`mut @set(key, v)`). `SessionStore` itself is a protocol —
-implement it against Redis/a database for production; every method takes an
-explicit clock for the same reason `JwtAuth` does above.
+`SessionStore` is an **effect** (Plan 222.20 Ф.3 Волна B), not a protocol —
+the textbook resource-substitution case: production plugs in Redis/a
+database, tests plug in an in-memory (or hand-rolled) double, both via
+`with SessionStore = ... { ... }` around dispatch. `memory_session_store(
+ttl_ms)` is the skeleton's one built-in handler factory — `HashMap` behind a
+`Mutex` (fiber-safe), lazy TTL eviction on `load`, its own clock read from
+the `Time` effect internally (no `now_ms` anywhere in the `SessionStore`
+surface any more). Unlike `Time`/`Log`, `SessionStore` has **no ambient
+default handler** — it is a resource a production caller must explicitly
+choose, exactly like `mock_http()`/`real_http()`, not an always-safe
+stdout-style default. `SessionData` is flat `str → str` key/value
+(`@get(key)`/`mut @set(key, v)`), unchanged.
 
 This is explicitly a **skeleton**, not a finished sessions subsystem — see
-[roadmap.md](roadmap.md) for what's next (a generic `[S SessionStore]`
-layer, once generic-capture codegen is proven safe for it).
+[roadmap.md](roadmap.md) for what's next (a generic multi-backend layer,
+once generic-capture codegen is proven safe for it).
 
 ## Related documents
 
