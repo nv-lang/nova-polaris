@@ -1,0 +1,105 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// nova-http: log.nv — the `Log` effect (Plan 222.20 Ф.3 Волна A, §Q3 design
+// note, `docs/plans/222.20-design-note.md` in the nova repo). ONE ambient
+// logging capability, replacing THREE independent hand-rolled sink copies
+// that had accumulated in this package (`background.nv`'s `@emit` field +
+// `@sink` setter, `middleware/log.nv`'s own `emit` field + `@sink`,
+// `net/config.nv`'s `panic_emit` field + `@panic_sink`) — the identical
+// fn-typed-field-plus-setter shape, written three times independently, each
+// defaulting to the same stdout-via-`Io` closure. §Q3 names this the
+// highest value/lowest risk item of the whole 222.20 effects pass —
+// buildable independently of the harder Q1 (Handler-effect-polymorphism)
+// question.
+//
+// Form: `info`/`error` — the two levels the three actual call sites need
+// (the access-log middleware's per-request line is `info`; a background
+// task's panic/throw and a recovered handler panic are `error`). No
+// warn/debug/trace — YAGNI until a real caller needs them, same discipline
+// `TimerMetrics`/`Mem` (std/prelude/effects.nv) already apply to their own
+// op lists.
+//
+// Triad (nova-http's `Http`/`real_http`/`mock_http` shape — the design
+// note's own reference model): `Log` (this file) + `real_log()`
+// (`#default_handler`, stdout via the ambient `Io` effect — the SAME recipe
+// the three retired `default_sink`/`default_panic_sink` copies used) +
+// `capture_log(lines)` (test handler — appends every line, in call order,
+// to a shared `[]str`, no stdout scraping). `Log` is a polaris-only effect
+// (not std, per the design note's own framing — this package's logging
+// need, not a stdlib-wide concern), so its test handler lives here rather
+// than in `std.testing.handlers`.
+//
+// Raw-op threading (design note §0, Ф-C): every call site touched by this
+// wave (`BackgroundTasks.@drain()`, `middleware.log.log_apply`, already
+// `Time`; `net.serve.run_request`, already `Net Time`) calls
+// `Log.info`/`Log.error` as a RAW effect op, never through a NAMED
+// Log-declaring function — under `--strict-effects` a raw op is NOT checked
+// against the caller's own effect row (probed 4b/4f/4g/4h/4j in the design
+// note), so NONE of those three functions need `Log` added to their
+// signature: the ambient `#default_handler` below resolves it with zero
+// threading. This leans on an open compiler question the design note calls
+// "дыра №93" (a raw op should arguably require the same declaration a
+// named-fn call does, per D62) — cited here as the exact mechanism this
+// wave's cheapness depends on, not re-litigated.
+//
+// Naming collision, resolved (found empirically wiring this file): a bare
+// `Log` effect name COLLIDES with `middleware/log.nv`'s PRE-EXISTING
+// `export type Log value { ... }` (the access-log middleware's own config
+// record) — both compile into the same CU (this package's own
+// `nova test src`), and a same-CU bare-name collision is a documented,
+// repeated compiler behavior in this exact package (`ServerPolicy`, not
+// `ServerConfig` — see that file's own banner; `NetError`/`ParseUrlError`,
+// `servernet.nv`'s). Resolved by renaming the middleware's config record
+// `Log` -> `AccessLog` (parallel to its `Cors`/`RateLimit`/`Compression`
+// siblings — a feature-named config, not a generic `Log`) instead of
+// picking an off-convention name for the effect itself: `Log` stays
+// reserved for the one ambient capability, matching the single-word
+// convention every other ambient effect in this codebase uses
+// (`Io`/`Time`/`Random`).
+
+module polaris
+
+import std.io.{stdout, Io, real_io}
+
+/// Ambient logging capability (Plan 222.20 §Q3). Two levels — everything
+/// this package needs today: `info` for routine lines (the access-log
+/// middleware), `error` for failures a human should see (a background
+/// task's panic/throw, a handler panic caught by recover-500).
+#stable(since = "0.1")
+export type Log effect {
+    info(msg str) -> ()
+    error(msg str) -> ()
+}
+
+/// Real handler: both levels go to stdout via the ambient `Io` effect —
+/// the SAME recipe the three retired `default_sink`/`default_panic_sink`
+/// copies used (`real_io` is itself `#default_handler`,
+/// `std/io/console.nv`). Bare `#default_handler` form (D431,
+/// `real_time`/`real_io` precedent): the effect is inferred from this fn's
+/// own `-> Effect[Log]` return type, installed lazily on first ambient use
+/// — no `with` required in production code.
+#stable(since = "0.1")
+#default_handler
+export fn real_log() -> Effect[Log] {
+    effect Log {
+        info(msg str) -> () { with Io = real_io() { write_log_line(msg) } }
+        error(msg str) -> () { with Io = real_io() { write_log_line(msg) } }
+    }
+}
+
+fn write_log_line(line str) Io -> () {
+    mut out = stdout()
+    ro _ = out.write("${line}\n".bytes())
+}
+
+/// Test handler (the triad's third leg): every `info`/`error` line is
+/// appended to `lines`, IN CALL ORDER — no stdout scraping. `lines` is a
+/// `[]str` (`Vec[str]`, reference semantics) — the SAME instance the caller
+/// holds is mutated, same shape `mock_io`'s `IoCapture` fields use
+/// (`std/io/console.nv`).
+#stable(since = "0.1")
+export fn capture_log(mut lines []str) -> Effect[Log] {
+    effect Log {
+        info(msg str) -> () { lines.push(msg) }
+        error(msg str) -> () { lines.push(msg) }
+    }
+}

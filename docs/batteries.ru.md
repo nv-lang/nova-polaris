@@ -93,9 +93,8 @@ test "batteries: compress — gzip only above min_size and when the client accep
 ```nova
 test "batteries: log — one line per request, X-Request-Id propagated" {
     mut lines []str = []
-    mut cfg = Log.new()
-    cfg.sink(fn(line str) -> () => { lines.push(line) })
-    with Time = th.fixed_ms(0) {
+    ro cfg = AccessLog.new()
+    with Time = th.fixed_ms(0), Log = capture_log(lines) {
         mut r = Router.new()
         r.layer(logger(cfg))
         r.get("/x", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, "ok"))!!
@@ -108,22 +107,26 @@ test "batteries: log — one line per request, X-Request-Id propagated" {
 ```
 
 Одна строка на запрос: метод, путь, статус, размер тела ответа, wall-clock
-длительность. `Log.new()` по умолчанию — request-id **включён**, real-ip
-**выключен**, строки идут в stdout через ambient-эффект `Io`;
-`@sink(f)` перенаправляет строки куда угодно (тест выше перехватывает их в
-`Vec[str]` — скрейпинг stdout не нужен и в ваших собственных тестах).
-`X-Request-Id` берётся из входящего заголовка, если он присутствует и
-безопасен, иначе генерируется из счётчика конкретного конфига (`req-1`,
-`req-2`, …) и эхом возвращается в ответе. `@real_ip(true)` добавляет в
-строку первый хоп `X-Forwarded-For` — по умолчанию **выключено**, тот же
-предупреждающий комментарий, что у chi'шного `RealIP`: этот заголовок
-контролируется клиентом, доверяйте ему только за прокси, который его
-перезаписывает.
+длительность. `AccessLog.new()` по умолчанию — request-id **включён**,
+real-ip **выключен**; строки идут через ambient
+[эффект `Log`](serving.ru.md#эффект-log) — по умолчанию в stdout,
+перенаправляемо в тестах через `with Log = capture_log(lines) { ... }`
+(тест выше перехватывает их в `Vec[str]` — скрейпинг stdout не нужен и в
+ваших собственных тестах). `X-Request-Id` берётся из входящего заголовка,
+если он присутствует и безопасен, иначе генерируется из счётчика
+конкретного конфига (`req-1`, `req-2`, …) и эхом возвращается в ответе.
+`@real_ip(true)` добавляет в строку первый хоп `X-Forwarded-For` — по
+умолчанию **выключено**, тот же предупреждающий комментарий, что у
+chi'шного `RealIP`: этот заголовок контролируется клиентом, доверяйте ему
+только за прокси, который его перезаписывает.
 
 `@middleware()` несёт эффект-ряд `Time` (он измеряет wall-clock
 длительность вокруг обёрнутого хендлера) — тесты фиксируют часы через
 `with Time = th.fixed_ms(...)` (`std.testing.handlers`) для
-детерминированного вывода, как показано выше.
+детерминированного вывода, как показано выше. `Log` в этом ряду НЕТ:
+строка запроса эмитится сырым опом `Log.info(...)` (не проверяется под
+`--strict-effects`, см. [serving.md](serving.ru.md#эффект-log)), поэтому
+он свободно комбинируется в одном `with Time = ..., Log = ... { ... }`.
 
 ## ratelimit
 

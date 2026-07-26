@@ -21,6 +21,7 @@ control), streaming/SSE-ответы и отложенная работа в д�
 - [Запуск accept-loop](#запуск-accept-loop)
 - [Streaming и SSE](#streaming-и-sse)
 - [Фоновые задачи](#фоновые-задачи)
+- [Эффект `Log`](#эффект-log)
 - [Связанные документы](#связанные-документы)
 
 ---
@@ -97,9 +98,8 @@ fn serving_main(consume listener TcpListener, consume single TcpStream, app Rout
 Пойманная паника хендлера отвечается согласно `policy.panic_response()`
 (по умолчанию `InternalError500` — честный `500`, соединение остаётся
 живым для *следующего* запроса, если обе стороны договорились о
-keep-alive) и логируется через `policy.panic_emit`/`@panic_sink(f)`
-(по умолчанию stdout, перенаправляемо — тот же рецепт, что у `@sink`
-из `Log`, [batteries.md](batteries.ru.md#log)).
+keep-alive) и логируется через ambient [эффект `Log`](#эффект-log)
+(по умолчанию stdout, перенаправляемо в тестах — см. ниже).
 
 См. [`overview.md`](overview.ru.md#минимальный-сервер) для минимального
 end-to-end `main()`, который сокращённо описывает doc-comment этой функции.
@@ -167,8 +167,45 @@ test "serving: BackgroundTasks run AFTER the response, in FIFO order" {
 вызывает `@drain()` **после** того, как байты ответа полностью записаны
 клиенту — очередь работы никогда не добавляет латентности хендлеру. Задачи
 выполняются **по одной**, каждая в своём `supervised`-scope: паникующая
-задача изолирована (залогирована через `@sink(f)`, по умолчанию stdout),
-не останавливает задачи, поставленные после неё, и не роняет процесс.
+задача изолирована (залогирована через ambient [эффект `Log`](#эффект-log),
+по умолчанию stdout), не останавливает задачи, поставленные после неё, и не
+роняет процесс.
+
+## Эффект `Log`
+
+```nova
+test "serving: Log — info/error lines captured, no stdout scraping" {
+    mut lines []str = []
+    with Log = capture_log(lines) {
+        Log.info("hello")
+        Log.error("boom")
+    }
+    assert(lines.len() == 2)
+    assert(lines[0] == "hello")
+    assert(lines[1] == "boom")
+}
+```
+
+`Log` (`src/log.nv`) — ЕДИНСТВЕННАЯ ambient-возможность логирования в этом
+пакете — `info` для рядовых строк (строка запроса
+[батарейки `log`](batteries.ru.md#log)), `error` для отказов, которые
+должен увидеть человек (паника/throw фоновой задачи выше, и паника
+хендлера, пойманная recover-500). Она заменила три независимые
+ручные копии sink'а (собственные `@emit`/`@sink` у `BackgroundTasks`,
+собственные `emit`/`@sink` у батарейки `log`, собственные
+`panic_emit`/`@panic_sink` у `ServerPolicy`) — Plan 222.20 §Q3.
+
+Продакшен-код никогда не устанавливает хендлер явно: `real_log()` —
+`#default_handler` (D431) — оба уровня идут в stdout, лениво, при первом
+ambient-обращении. Тесты перенаправляют через
+`with Log = capture_log(lines) { ... }` (`lines` — `Vec[str]`, дополняется
+В ПОРЯДКЕ ВЫЗОВОВ — без скрейпинга stdout). Каждая точка вызова в этом
+пакете (`BackgroundTasks.@drain()`, `log_apply` батарейки `log`,
+recover-500-путь `run_request`) зовёт `Log.info`/`Log.error` как СЫРОЙ
+эффект-оп, не через именованную Log-объявляющую функцию —
+`--strict-effects` не проверяет сырой оп против эффект-ряда вызывающего,
+поэтому ни одна из этих функций не несёт `Log` в своей сигнатуре; там
+остаётся только то, что им и так было нужно (`Time`/`Net`/…).
 
 ## Связанные документы
 

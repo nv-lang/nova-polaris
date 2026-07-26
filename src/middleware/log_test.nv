@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Plan 222.12 Ф.2 — `http.middleware.log` pin tests. Fully deterministic:
 // `with Time = th.fixed_ms(...)` freezes the duration at 0ms
-// (rate_limiter_test.nv recipe), the sink is a capturing closure (no stdout
-// scraping), request-ids count from this config's own fresh counter.
+// (rate_limiter_test.nv recipe), lines are captured via
+// `with Log = capture_log(lines) { ... }` (Plan 222.20 Ф.3 Волна A §Q3,
+// `log.nv`) instead of the retired `cfg.sink(f)` callback — request-ids
+// count from this config's own fresh counter.
 // Asserts stay INSIDE the with-block (closure-capture scope note,
 // std/concurrency/retry_test.nv precedent).
 
 module middleware.log_test
 
-import polaris.middleware.log.{Log, logger}
-import polaris.{Router, route_once, ServerResponse}
+import polaris.middleware.log.{AccessLog, logger}
+import polaris.{Router, route_once, ServerResponse, capture_log}
 import std.testing.handlers as th
 
 fn req(method str, path str, headers [](str, str)) -> []u8 {
@@ -30,7 +32,7 @@ fn hdr(resp ServerResponse, name str) -> str {
     }
 }
 
-fn routed(cfg Log) Time -> Router {
+fn routed(cfg AccessLog) Time -> Router {
     mut r = Router.new()
     r.layer(logger(cfg))
     r.get("/x", fn(_req ServerRequest) -> ServerResponse => ServerResponse.text(200, "ok"))!!
@@ -39,9 +41,8 @@ fn routed(cfg Log) Time -> Router {
 
 test "log: line has method, path, status, size, duration; id generated" {
     mut lines []str = []
-    mut cfg = Log.new()
-    cfg.sink(fn(line str) -> () => { lines.push(line) })
-    with Time = th.fixed_ms(0) {
+    ro cfg = AccessLog.new()
+    with Time = th.fixed_ms(0), Log = capture_log(lines) {
         ro resp = route_once(routed(cfg), req("GET", "/x", []))
         assert(resp.status_code() == 200)
         assert(hdr(resp, "x-request-id") == "req-1")
@@ -52,9 +53,8 @@ test "log: line has method, path, status, size, duration; id generated" {
 
 test "log: ids increment per request through the shared counter" {
     mut lines []str = []
-    mut cfg = Log.new()
-    cfg.sink(fn(line str) -> () => { lines.push(line) })
-    with Time = th.fixed_ms(0) {
+    ro cfg = AccessLog.new()
+    with Time = th.fixed_ms(0), Log = capture_log(lines) {
         ro r = routed(cfg)
         ro r1 = route_once(r, req("GET", "/x", []))
         ro r2 = route_once(r, req("GET", "/x", []))
@@ -66,9 +66,8 @@ test "log: ids increment per request through the shared counter" {
 
 test "log: incoming X-Request-Id is propagated, not regenerated" {
     mut lines []str = []
-    mut cfg = Log.new()
-    cfg.sink(fn(line str) -> () => { lines.push(line) })
-    with Time = th.fixed_ms(0) {
+    ro cfg = AccessLog.new()
+    with Time = th.fixed_ms(0), Log = capture_log(lines) {
         ro resp = route_once(routed(cfg), req("GET", "/x", [("X-Request-Id", "abc-42")]))
         assert(hdr(resp, "x-request-id") == "abc-42")
         assert(lines[0] == "[abc-42] GET /x -> 200 2B in 0ms")
@@ -77,9 +76,8 @@ test "log: incoming X-Request-Id is propagated, not regenerated" {
 
 test "log: hostile X-Request-Id (non-token) is replaced by a fresh id" {
     mut lines []str = []
-    mut cfg = Log.new()
-    cfg.sink(fn(line str) -> () => { lines.push(line) })
-    with Time = th.fixed_ms(0) {
+    ro cfg = AccessLog.new()
+    with Time = th.fixed_ms(0), Log = capture_log(lines) {
         ro resp = route_once(routed(cfg), req("GET", "/x", [("X-Request-Id", "two words")]))
         assert(hdr(resp, "x-request-id") == "req-1")
     }
@@ -87,9 +85,9 @@ test "log: hostile X-Request-Id (non-token) is replaced by a fresh id" {
 
 test "log: request_id(false) -> no header, no [] prefix" {
     mut lines []str = []
-    mut cfg = Log.new()
-    cfg.sink(fn(line str) -> () => { lines.push(line) }).request_id(false)
-    with Time = th.fixed_ms(0) {
+    mut cfg = AccessLog.new()
+    cfg.request_id(false)
+    with Time = th.fixed_ms(0), Log = capture_log(lines) {
         ro resp = route_once(routed(cfg), req("GET", "/x", []))
         assert(hdr(resp, "x-request-id") == "")
         assert(lines[0] == "GET /x -> 200 2B in 0ms")
@@ -98,9 +96,9 @@ test "log: request_id(false) -> no header, no [] prefix" {
 
 test "log: real_ip(true) appends the first X-Forwarded-For hop" {
     mut lines []str = []
-    mut cfg = Log.new()
-    cfg.sink(fn(line str) -> () => { lines.push(line) }).real_ip(true)
-    with Time = th.fixed_ms(0) {
+    mut cfg = AccessLog.new()
+    cfg.real_ip(true)
+    with Time = th.fixed_ms(0), Log = capture_log(lines) {
         ro _ = route_once(routed(cfg), req("GET", "/x", [("X-Forwarded-For", "1.2.3.4, 10.0.0.1")]))
         assert(lines[0] == "[req-1] GET /x -> 200 2B in 0ms from 1.2.3.4")
     }
@@ -108,9 +106,9 @@ test "log: real_ip(true) appends the first X-Forwarded-For hop" {
 
 test "log: real_ip stays silent without the header" {
     mut lines []str = []
-    mut cfg = Log.new()
-    cfg.sink(fn(line str) -> () => { lines.push(line) }).real_ip(true)
-    with Time = th.fixed_ms(0) {
+    mut cfg = AccessLog.new()
+    cfg.real_ip(true)
+    with Time = th.fixed_ms(0), Log = capture_log(lines) {
         ro _ = route_once(routed(cfg), req("GET", "/x", []))
         assert(lines[0] == "[req-1] GET /x -> 200 2B in 0ms")
     }
@@ -118,9 +116,8 @@ test "log: real_ip stays silent without the header" {
 
 test "log: 404 fallback path is NOT logged (route_layer semantics, 222.4 pin)" {
     mut lines []str = []
-    mut cfg = Log.new()
-    cfg.sink(fn(line str) -> () => { lines.push(line) })
-    with Time = th.fixed_ms(0) {
+    ro cfg = AccessLog.new()
+    with Time = th.fixed_ms(0), Log = capture_log(lines) {
         ro resp = route_once(routed(cfg), req("GET", "/missing", []))
         assert(resp.status_code() == 404)
         assert(lines.len() == 0)
