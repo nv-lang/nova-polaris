@@ -111,7 +111,7 @@ export fn BackgroundTasks @task_count() -> int => @tasks.len()
 /// fully written to the client (see `http.servernet.handle_connection`) —
 /// see file banner TODO for the graceful-shutdown lifecycle gap (222.7).
 #stable(since = "0.1")
-export fn BackgroundTasks mut @drain() {
+export fn BackgroundTasks mut @drain() Log {
     for t in @tasks {
         ro task = t
         mut failed = false
