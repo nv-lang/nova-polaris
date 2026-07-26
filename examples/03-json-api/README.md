@@ -7,6 +7,12 @@ for the not-found/bad-input paths.
 
 By way of: axum's `todos` example, the FastAPI tutorial's items CRUD.
 
+> **Note before you read the code:** every endpoint here builds its JSON via
+> `#impl(Serialize)` + `ServerResponse.json` — the canonical way — **except**
+> `GET /todos`, which hand-builds the array as a string. That one function is
+> a narrow workaround for an open codegen gap (`Vec[T Serialize]`, see
+> "Two things this example works around" below), **not** a pattern to copy.
+
 ## Run
 
 ```sh
