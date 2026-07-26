@@ -63,7 +63,6 @@ fn find_by_id(items Vec[Todo], id int) -> Option[Todo] {
 fn build_router() -> Router {
     mut items Vec[Todo] = Vec[Todo].new()
     mut next_id = 1
-    mut r = Router.new()
 
     // Every path that carries MORE THAN ONE HTTP method here is registered
     // as ONE explicit `MethodRouter` chain (`get(h).post(h2)`, `get(h).put(
@@ -77,70 +76,68 @@ fn build_router() -> Router {
     // this set (02-routing included) registers single-method routes the
     // plain way; this file needs the chained form throughout because every
     // one of its paths carries 2-3 methods over the same captured state.
-    r.route("/todos",
-        get(fn(req ServerRequest) -> ServerResponse =>
-            ServerResponse.bytes(StatusCode.OK, "application/json", todos_json(items).bytes()))
-        .post(fn(req ServerRequest) -> ServerResponse {
-            match Json[NewTodo].from_request(req) {
-                Ok(body) => {
-                    ro created = Todo { id: next_id, title: body.data().title, done: false }
-                    next_id += 1
-                    items.push(created)
-                    ServerResponse.json(StatusCode.CREATED, created)
+    Router.new()
+        .route("/todos",
+            get(fn(req ServerRequest) -> ServerResponse =>
+                ServerResponse.bytes(StatusCode.OK, "application/json", todos_json(items).bytes()))
+            .post(fn(req ServerRequest) -> ServerResponse {
+                match Json[NewTodo].from_request(req) {
+                    Ok(body) => {
+                        ro created = Todo { id: next_id, title: body.data().title, done: false }
+                        next_id += 1
+                        items.push(created)
+                        ServerResponse.json(StatusCode.CREATED, created)
+                    }
+                    Err(e) => e.into_response()
                 }
-                Err(e) => e.into_response()
-            }
-        }))!!
-
-    r.route("/todos/{id}",
-        get(fn(req ServerRequest) -> ServerResponse {
-            match (req.param("id") ?? "").to_int() {
-                Ok(id) => match find_by_id(items, id) {
-                    Some(t) => ServerResponse.json(StatusCode.OK, t)
-                    None    => not_found()
+            }))!!
+        .route("/todos/{id}",
+            get(fn(req ServerRequest) -> ServerResponse {
+                match (req.param("id") ?? "").to_int() {
+                    Ok(id) => match find_by_id(items, id) {
+                        Some(t) => ServerResponse.json(StatusCode.OK, t)
+                        None    => not_found()
+                    }
+                    Err(_) => bad_request()
                 }
-                Err(_) => bad_request()
-            }
-        }).put(fn(req ServerRequest) -> ServerResponse {
-            match (req.param("id") ?? "").to_int() {
-                Ok(id) => match find_by_id(items, id) {
-                    Some(_) => match Json[TodoUpdate].from_request(req) {
-                        Ok(body) => {
-                            ro updated = Todo { id, title: body.data().title, done: body.data().done }
-                            mut i = 0
-                            mut done_updating = false
-                            while i < items.len() && !done_updating {
-                                ro existing = items[i]
-                                if existing.id == id { items[i] = updated; done_updating = true }
-                                i += 1
+            }).put(fn(req ServerRequest) -> ServerResponse {
+                match (req.param("id") ?? "").to_int() {
+                    Ok(id) => match find_by_id(items, id) {
+                        Some(_) => match Json[TodoUpdate].from_request(req) {
+                            Ok(body) => {
+                                ro updated = Todo { id, title: body.data().title, done: body.data().done }
+                                mut i = 0
+                                mut done_updating = false
+                                while i < items.len() && !done_updating {
+                                    ro existing = items[i]
+                                    if existing.id == id { items[i] = updated; done_updating = true }
+                                    i += 1
+                                }
+                                ServerResponse.json(StatusCode.OK, updated)
                             }
-                            ServerResponse.json(StatusCode.OK, updated)
+                            Err(e) => e.into_response()
                         }
-                        Err(e) => e.into_response()
+                        None => not_found()
                     }
-                    None => not_found()
+                    Err(_) => bad_request()
                 }
-                Err(_) => bad_request()
-            }
-        }).delete(fn(req ServerRequest) -> ServerResponse {
-            match (req.param("id") ?? "").to_int() {
-                Ok(id) => match find_by_id(items, id) {
-                    Some(_) => {
-                        mut i = 0
-                        mut removed = false
-                        while i < items.len() && !removed {
-                            ro existing = items[i]
-                            if existing.id == id { ro _ = items.remove(i); removed = true } else { i += 1 }
+            }).delete(fn(req ServerRequest) -> ServerResponse {
+                match (req.param("id") ?? "").to_int() {
+                    Ok(id) => match find_by_id(items, id) {
+                        Some(_) => {
+                            mut i = 0
+                            mut removed = false
+                            while i < items.len() && !removed {
+                                ro existing = items[i]
+                                if existing.id == id { ro _ = items.remove(i); removed = true } else { i += 1 }
+                            }
+                            ServerResponse.empty(StatusCode.NO_CONTENT)
                         }
-                        ServerResponse.empty(StatusCode.NO_CONTENT)
+                        None => not_found()
                     }
-                    None => not_found()
+                    Err(_) => bad_request()
                 }
-                Err(_) => bad_request()
-            }
-        }))!!
-
-    r
+            }))!!
 }
 
 /// Canonical production shape (serving.md/overview.md): `main` IS the accept

@@ -35,14 +35,12 @@ fn ticker(remaining int) -> StreamBody {
     })
 }
 
-fn build_router() -> Router {
-    mut r = Router.new()
-    r.get("/events", fn(req ServerRequest) -> ServerResponse =>
-        ServerResponse.sse(ticker(5)))!!
-    r.get("/health", fn(req ServerRequest) -> ServerResponse =>
-        ServerResponse.text(StatusCode.OK, "ok"))!!
-    r
-}
+fn build_router() -> Router =>
+    Router.new()
+        .get("/events", fn(req ServerRequest) -> ServerResponse =>
+            ServerResponse.sse(ticker(5)))!!
+        .get("/health", fn(req ServerRequest) -> ServerResponse =>
+            ServerResponse.text(StatusCode.OK, "ok"))!!
 
 /// Canonical production shape (serving.md/overview.md): `main` IS the accept
 /// loop, no `supervised { spawn { ... } }` wrapper needed — main-body runs as
