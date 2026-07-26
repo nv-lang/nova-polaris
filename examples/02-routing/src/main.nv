@@ -32,24 +32,22 @@ fn widget_handler(req ServerRequest) -> ServerResponse {
 }
 
 fn build_router() -> Router {
-    mut top = Router.new()
-    top.fallback(fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.NOT_FOUND, "custom 404: nothing here"))
-    top.get("/users/{id}", user_handler)!!
-    top.get("/files/{*path}", files_handler)!!
-
-    // MethodRouter: get(h).post(h2) on one path -> 405+Allow on any other
-    // method, no extra code needed.
-    top.route("/widgets",
-        get(fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, "list"))
-            .post(fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.CREATED, "created")))!!
-
-    // A router-scoped MethodRouter with its OWN 405 override, nested under /api.
-    mut api = Router.new()
-    api.get("/widgets/{id}", widget_handler)!!
-    mut guarded = get(fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, "guarded ok"))
+    ro guarded = get(fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, "guarded ok"))
     guarded.fallback(fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.METHOD_NOT_ALLOWED, "custom 405: guarded"))
-    api.route("/guarded", guarded)!!
-    top.nest("/api", api)!!
+
+    ro api = Router.new()
+        .get("/widgets/{id}", widget_handler)!!
+        .route("/guarded", guarded)!!
+
+    ro top = Router.new()
+        .get("/users/{id}", user_handler)!!
+        .get("/files/{*path}", files_handler)!!
+        .route("/widgets",
+            get(fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, "list"))
+                .post(fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.CREATED, "created")))!!
+        .nest("/api", api)!!
+
+    top.fallback(fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.NOT_FOUND, "custom 404: nothing here"))
 
     // Route conflicts are typed errors, never a panic — registering the
     // same path twice at startup is caught and logged, not a crash.
