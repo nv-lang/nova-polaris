@@ -18,6 +18,7 @@ Source: `HttpError`/`ErrorKind` — [nova-http](https://github.com/nv-lang/nova-
 - [Status mapping](#status-mapping)
 - [Attaching context: `@with_url`](#attaching-context-with_url)
 - [`?`-ergonomics via the `Result` blanket](#-ergonomics-via-the-result-blanket)
+- [Panics vs `Fail`: which one for what](#panics-vs-fail-which-one-for-what)
 - [Related documents](#related-documents)
 
 ---
@@ -100,6 +101,44 @@ slots straight into a handler with one `.into_response()` call at the
 boundary. This is the idiomatic shape for request-handling logic in
 Polaris: keep your domain functions returning `Result[T, HttpError]`, keep
 `ServerResponse`-building at the very edge.
+
+## Panics vs `Fail`: which one for what
+
+Two different failure channels reach a handler, and Polaris treats them
+differently on purpose (222.20 Ф.3 Волна C):
+
+- **Expected, recoverable outcomes** (not-found, bad input, unauthorized,
+  upstream 503, …) are **`Result[T, HttpError]`** — see the `?`-blanket
+  above. This is the default channel for anything your handler's own logic
+  anticipates.
+- **Programmer errors and truly unexpected failures** (an assertion, an
+  out-of-bounds index, an unhandled `Fail`-effect throw escaping the
+  handler body) are **panics/escaped throws** — Polaris does *not* ask you
+  to wrap every possible defect in a `Result`. Per-request `Stop`-supervision
+  (D416) catches these at the connection boundary:
+
+```nova
+ro app = build_router()
+// ServerPolicy.panic_response(): InternalError500 (default) writes a
+// generic 500 and keeps the connection alive for the NEXT request on it;
+// Close drops the connection with no response body instead.
+serve_router(listener, app, ServerPolicy.new())
+```
+
+  The caught panic/throw is logged once via the ambient `Log` effect
+  (`"handler panic: <message>"`) and answered per `ServerPolicy.
+  panic_response()` — `InternalError500` (the default) or `Close`. **Message-
+  only, by design** (D437): the runtime's full "message + throw-site +
+  propagation trace" diagnostic is only ever printed by the top-level
+  unhandled-abort path — there is no Nova-level accessor that hands a trace
+  to a `Supervisor` handler, so recover-500 logs honestly what it actually
+  has (the message via `err.try_as[str]()`), not a fabricated "site".
+
+**Rule of thumb:** if your own code can name the failure mode ahead of
+time, return it as `Result[T, HttpError]`. If it can't — a genuine bug, an
+invariant violation, a dependency panicking — let it panic; recover-500
+contains the blast radius to one request, the process (and every other
+in-flight connection) keeps running.
 
 ## Related documents
 
