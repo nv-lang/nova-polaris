@@ -2,14 +2,14 @@
 // Plan 222.8 Ф.3 — `openapi.nv` peer tests. `RouteInfo` values are built
 // DIRECTLY (not via a real `Router`/`Router.introspect()`) — decouples
 // these from Router/extractor mechanics (already covered end-to-end by
-// extract_test.nv's `TypedRoute`/`@post_typed`/`introspect()` test) and lets
-// every `TypeShape` combination plan §1.3 items 6-9 describe be exercised
-// directly, including the multi-field BUNDLE shape (`Record(name, fields)`
-// with SEVERAL wrapper-role fields) that this package's OWN registration
-// path currently cannot produce end-to-end (extract.nv's bundle-embed
-// compiler-bug notes) — the EMITTER's own handling of that shape is still
-// real code or, verified here even though nothing in this package can
-// construct it live yet.
+// extract_test.nv's `TypedRoute`/`@post_typed`/`introspect()` test, including
+// its `GetItemBundle` canon multi-field bundle since registry №139 closed)
+// and lets every `TypeShape` combination plan §1.3 items 6-9 describe be
+// exercised directly, including the multi-field BUNDLE shape (`Record(name,
+// fields)` with SEVERAL wrapper-role fields) — the EMITTER's own handling
+// of that shape is unit-tested here against a hand-built `TypeShape`
+// (decoupled from a live `Router`/`#impl(Reflect)` synthesis on purpose),
+// the SAME shape `GetItemBundle.reflect()` now produces for real.
 
 module polaris
 
@@ -84,11 +84,11 @@ test "openapi_json: Req/Headers/Opaque request shapes are skipped (no parameters
 
 test "openapi_json: a multi-field BUNDLE req_shape — role read per-field, by field's OWN wrapper name" {
     // The canon plan §1.3 shape (`Record(bundle_name, [(field_name,
-    // wrapper_shape), ..])`) — this package's own registration path can't
-    // produce it live yet (extract.nv's bundle-embed compiler-bug note),
-    // but the EMITTER'S handling of it is still real, tested directly here
-    // via a hand-built `TypeShape` (exactly what a FUTURE `#impl(Reflect)`-
-    // derived bundle record's `.reflect()` would return).
+    // wrapper_shape), ..])`) — this package's own registration path
+    // produces it live too now (registry №139 closed, see extract_test.nv's
+    // `GetItemBundle`); this unit test keeps a hand-built `TypeShape` so the
+    // EMITTER'S handling of the shape stays decoupled from Router/`#impl(
+    // Reflect)` synthesis (exactly what `GetItemBundle.reflect()` returns).
     ro bundle_shape = TypeShape.Record("GetItemReq", [
         ("id", TypeShape.Record("PathParam", [("data", TypeShape.Int)])),
         ("filter", TypeShape.Record("Query", [("data", TypeShape.Str)])),
