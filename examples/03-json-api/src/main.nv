@@ -11,6 +11,7 @@ import polaris.{Router, ServerRequest, ServerResponse, Json, get, post, put, del
 import polaris.net.{ServerPolicy}
 import polaris.serve.{serve_router}
 import polaris.{StatusCode, HttpError}
+import polaris.{openapi_handler}
 import std.net.{TcpListener, SocketAddr}
 import std.encoding.serde.{Serialize, Deserialize}
 
@@ -53,7 +54,7 @@ fn build_router() -> Router {
     // this set (02-routing included) registers single-method routes the
     // plain way; this file needs the chained form throughout because every
     // one of its paths carries 2-3 methods over the same captured state.
-    Router.new()
+    mut app = Router.new()
         .route("/todos",
             get(fn(req ServerRequest) -> ServerResponse => ServerResponse.json(StatusCode.OK, items))
             .post(fn(req ServerRequest) -> ServerResponse {
@@ -114,6 +115,19 @@ fn build_router() -> Router {
                     Err(_) => bad_request()
                 }
             }))!!
+
+    // Plan 222.8 Ф.3 — `/openapi.json`, EXPLICIT registration ("одна
+    // дверь", no magic in `serve_router`). Introspected AFTER every other
+    // route is registered (so it sees all of them) but the handler itself
+    // is built/cached ONCE here, before `serve` — zero per-request cost.
+    // This example's own routes carry no typed-extractor shapes (path `id`
+    // is read via `req.param("id")` directly, not `PathParam[T]` — see the
+    // `.route()` handlers above), so the emitted doc documents paths +
+    // methods without rich per-field schemas; still real end-to-end wiring
+    // against a real, running Router.
+    ro routes = app.introspect()
+    app.get("/openapi.json", openapi_handler(routes, "03-json-api Todo list", "1.0.0"))!!
+    app
 }
 
 /// Canonical production shape (serving.md/overview.md): `main` IS the accept
