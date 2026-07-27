@@ -29,6 +29,12 @@ module polaris
 import http.{HttpError, HeaderMap}
 import std.encoding.json.{JsonValue}
 import std.encoding.serde.{Deserialize, DeError, JsonDeserializer}
+// Plan 222.8 Ф.2: `Reflect` manual impls below (`Req`/`Headers`/`Bytes`/
+// `Text` -> `Opaque`; `PathParam[T]`/`Query[T]`/`Json[T]` -> `Record(name,
+// [("data", ..)])`, name = the wrapper's OWN type name — the Ф.3 OpenAPI
+// emitter reads the role off that name, plan §1.3) + `TypedRoute`/`typed(..)`
+// (this file's end section).
+import std.reflect.{TypeShape, Reflect}
 
 // ── arity-overload handler registration (plan §5) — BLOCKED, STOP+REPORT ──
 //
@@ -132,6 +138,15 @@ export type Headers value { priv data HeaderMap }
 /// The header map (property accessor, D117 — not a bare field).
 #stable(since = "0.1")
 export fn Headers @data() -> HeaderMap => @data
+
+// `Req` (passthrough whole-request extractor-wrapper, Plan 222.8 §1.3) is
+// declared in `server.nv`, NOT here — it embeds `ServerRequest` BY VALUE,
+// which needs `ServerRequest`'s C struct complete at the declaration site;
+// `extract.nv` sorts BEFORE `server.nv` in the folder-module peer order
+// (D78), so it can't declare that struct itself (see `server.nv`'s own
+// comment on `Req` for the confirmed CC-FAIL this sidesteps). Its
+// `FromRequest`/`Reflect` impls (protocol impls, no embedding-completeness
+// requirement) live below/further down, same as any other extractor.
 
 // ── flat key/value Deserializer engine (shared by Params/QueryDeserializer —
 // both are the SAME "flat string pairs + one scalar cursor" shape, only how
@@ -401,3 +416,153 @@ export fn Text.from_request(req ServerRequest) -> Result[Text, HttpError] {
 #impl(FromRequest)
 export fn Headers.from_request(req ServerRequest) -> Result[Headers, HttpError] =>
     Ok(Headers{ data: req.headers })
+
+/// `Req` — the raw `ServerRequest`, unparsed (never fails).
+#impl(FromRequest)
+export fn Req.from_request(req ServerRequest) -> Result[Req, HttpError] =>
+    Ok(Req{ data: req })
+
+// ── Reflect impls (Plan 222.8 Ф.2) — MANUAL, not compiler-derived: these are
+// library-owned extractor wrapper types, outside `#impl(Reflect)`'s
+// auto_derive field-walk scope (std/reflect.nv §1.2 is opt-in for USER
+// record/sum types). `PathParam[T]`/`Query[T]`/`Json[T]` reflect to
+// `Record(<WrapperTypeName>, [("data", T.reflect())])` — mirrors exactly
+// what auto_derive WOULD produce for the real `{ data T }` struct shape
+// (same field name), so the wrapper's OWN type name ends up embedded in the
+// `TypeShape` the Ф.3 OpenAPI emitter inspects to pick a field's role
+// (plan §1.3: "роль поля... по ИМЕНИ типа-обёртки"). `Req`/`Headers`/
+// `Bytes`/`Text` reflect to `Opaque` — never synthesized by the compiler
+// (std/reflect.nv docstring), only a hand-written impl like these; the
+// emitter skips `Opaque` fields entirely (plan §1.3).
+//
+// NB: the plan's illustrative bundle example names this wrapper `Path[T]`;
+// this package's ACTUAL type is `PathParam[T]` (HOTFIX, see this file's own
+// `#stable` doc-comment above `PathParam` — [M-crossmodule-samename-
+// typecheck-bleed], №28, rename back to `Path` pending that fix). The role
+// string the emitter matches on is `"PathParam"`, not `"Path"`, until then.
+
+#impl(Reflect)
+export fn PathParam[T Reflect].reflect() -> TypeShape => TypeShape.Record("PathParam", [("data", T.reflect())])
+
+#impl(Reflect)
+export fn Query[T Reflect].reflect() -> TypeShape => TypeShape.Record("Query", [("data", T.reflect())])
+
+#impl(Reflect)
+export fn Json[T Reflect].reflect() -> TypeShape => TypeShape.Record("Json", [("data", T.reflect())])
+
+#impl(Reflect)
+export fn Req.reflect() -> TypeShape => TypeShape.Opaque("ServerRequest")
+
+#impl(Reflect)
+export fn Headers.reflect() -> TypeShape => TypeShape.Opaque("HeaderMap")
+
+#impl(Reflect)
+export fn Bytes.reflect() -> TypeShape => TypeShape.Opaque("Bytes")
+
+#impl(Reflect)
+export fn Text.reflect() -> TypeShape => TypeShape.Opaque("Text")
+
+// ── Typed registration (Plan 222.8 Ф.2) ────────────────────────────────────
+//
+// [M-generic-fn-value-param-call-mono-collision] (found THIS wave, NOT
+// fixed here — outside Ф.2 scope): the plan's original design for this
+// section was a SINGLE generic wrapper — `fn typed[T FromRequest+Reflect, R
+// IntoResponse+Reflect](f fn(T) -> Result[R, HttpError]) -> TypedRoute`,
+// decoding via `T.from_request`/encoding via `R`'s `IntoResponse` INSIDE a
+// hoisted-one-level helper (`typed_invoke[T,R](f, req)`, [M-16]-discipline
+// shape identical to middleware.nv's proven `flat_handler`/`flat_invoke`).
+// It type-checks but does NOT codegen: `typed_invoke`'s OWN body calling
+// `f(v)` — `f` being ITS OWN parameter of GENERIC fn-type `fn(T) ->
+// Result[R, HttpError]` — cross-contaminates an UNRELATED same-CU generic
+// closure's call signature. Minimal repro (isolated, not http-specific):
+// `fn call_it[T](f fn(T) -> T, x T) -> T => f(x)`, called as
+// `call_it[Json[CreateItem]](echo_item)` anywhere in a CU that ALSO has
+// SOME OTHER generic-closure code elsewhere — CC-FAIL "passing
+// 'NovaValue_WebSocketUpgrade' to parameter of incompatible type
+// 'NovaValue_Json____NovaValue_CreateItem'" (the wrong type is whatever
+// OTHER generic instantiation happens to share the CU — reproduced with the
+// closure body written BOTH as `f(v).into_response()` (blanket dispatch)
+// AND as a manual `match f(v) { Ok(r) => r.into_response(), .. }`
+// (concrete-impl dispatch) — identical failure either way, so the trigger
+// is the CALL TO `f` itself, not `.into_response()`). Same defect FAMILY as
+// `[M-concrete-instance-arity-overload-mangle]` (this file's banner above,
+// which blocked 222.3 §5's arity sugar for the same underlying reason:
+// "generic higher-order fn resolution" is a recurring gap in this
+// compiler) — NOT a new root cause, a second symptom of it. Reported to
+// integrator for `docs/plans/backlog-followups.md` registration (this
+// worktree does not touch the nova repo).
+//
+// WORKAROUND (the shape actually shipped below): `TypedRoute` is built
+// DIRECTLY as a struct literal — `handler` is the caller's OWN
+// hand-written `Handler` closure (same shape every OTHER route in this
+// package already uses, see `router_test.nv`/the "Ф.3" test above),
+// `req_shape`/`resp_shape` are `Some(T.reflect())`/`Some(R.reflect())` — a
+// plain STATIC method call on a generic typevar (proven safe throughout
+// this file/std/reflect.nv — nothing calls a STORED generic fn VALUE, only
+// dispatches a protocol method BY TYPE, an entirely different codegen path).
+// Less ergonomic than the plan's single-wrapper ideal (two things to write
+// instead of one), but delivers the same `Router.introspect()`/Ф.3-emitter
+// value with zero compiler-bug exposure.
+
+/// A registered typed route: a hand-written `Handler` (decode via
+/// `T.from_request`, encode via `R`'s `IntoResponse` — write it the same
+/// way as any other route in this package, see `router_test.nv`) + the
+/// request/response shapes `Router.introspect()`/the Ф.3 OpenAPI emitter
+/// read back out. See the `[M-generic-fn-value-param-call-mono-collision]`
+/// note above for why this isn't built by a generic `typed(handler_fn)`
+/// wrapper.
+#stable(since = "0.1")
+export type TypedRoute value {
+    ro handler    Handler
+    ro req_shape  Option[TypeShape]
+    ro resp_shape Option[TypeShape]
+}
+
+/// Register a typed `GET` handler at `path` — sugar over `@get(path,
+/// t.handler)` that ALSO records `t`'s shapes for `Router.introspect()`. A
+/// separate method NAME from `@get` (NOT a same-name overload) —
+/// deliberately: `[M-concrete-instance-arity-overload-mangle]` (this file's
+/// own banner above) is a NEW bound-generic overload sharing an EXISTING
+/// non-generic method's name breaking codegen on the pre-existing call
+/// sites, even with zero calls to the new overload. `TypedRoute` itself is
+/// always concrete by construction (a plain struct literal, see its own doc
+/// comment above) — no overload-name collision, no generic Router-method
+/// surface at all.
+#stable(since = "0.1")
+export fn Router mut @get_typed(path str, t TypedRoute) -> Result[Router, HttpError] {
+    @get(path, t.handler)?
+    @shapes.push(RouteInfo{path, method: "GET", req_shape: t.req_shape, resp_shape: t.resp_shape})
+    Ok(@)
+}
+
+/// Register a typed `POST` handler at `path` (see `@get_typed`).
+#stable(since = "0.1")
+export fn Router mut @post_typed(path str, t TypedRoute) -> Result[Router, HttpError] {
+    @post(path, t.handler)?
+    @shapes.push(RouteInfo{path, method: "POST", req_shape: t.req_shape, resp_shape: t.resp_shape})
+    Ok(@)
+}
+
+/// Register a typed `PUT` handler at `path` (see `@get_typed`).
+#stable(since = "0.1")
+export fn Router mut @put_typed(path str, t TypedRoute) -> Result[Router, HttpError] {
+    @put(path, t.handler)?
+    @shapes.push(RouteInfo{path, method: "PUT", req_shape: t.req_shape, resp_shape: t.resp_shape})
+    Ok(@)
+}
+
+/// Register a typed `DELETE` handler at `path` (see `@get_typed`).
+#stable(since = "0.1")
+export fn Router mut @delete_typed(path str, t TypedRoute) -> Result[Router, HttpError] {
+    @delete(path, t.handler)?
+    @shapes.push(RouteInfo{path, method: "DELETE", req_shape: t.req_shape, resp_shape: t.resp_shape})
+    Ok(@)
+}
+
+/// Register a typed `PATCH` handler at `path` (see `@get_typed`).
+#stable(since = "0.1")
+export fn Router mut @patch_typed(path str, t TypedRoute) -> Result[Router, HttpError] {
+    @patch(path, t.handler)?
+    @shapes.push(RouteInfo{path, method: "PATCH", req_shape: t.req_shape, resp_shape: t.resp_shape})
+    Ok(@)
+}
