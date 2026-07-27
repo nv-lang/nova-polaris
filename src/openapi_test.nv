@@ -1,0 +1,173 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Plan 222.8 Ф.3 — `openapi.nv` peer tests. `RouteInfo` values are built
+// DIRECTLY (not via a real `Router`/`Router.introspect()`) — decouples
+// these from Router/extractor mechanics (already covered end-to-end by
+// extract_test.nv's `TypedRoute`/`@post_typed`/`introspect()` test) and lets
+// every `TypeShape` combination plan §1.3 items 6-9 describe be exercised
+// directly, including the multi-field BUNDLE shape (`Record(name, fields)`
+// with SEVERAL wrapper-role fields) that this package's OWN registration
+// path currently cannot produce end-to-end (extract.nv's bundle-embed
+// compiler-bug notes) — the EMITTER's own handling of that shape is still
+// real code or, verified here even though nothing in this package can
+// construct it live yet.
+
+module polaris
+
+import std.reflect.{TypeShape, SumRepr}
+
+// Splitting by a substring yields N+1 pieces for N (non-overlapping)
+// occurrences (`SplitIter` is a lazy `Next[str]` iterator, no `.len()` —
+// count pieces via `for`); used below to confirm a hoisted schema appears
+// EXACTLY once (dedup, plan item 8) even when referenced from multiple
+// routes.
+fn count_occurrences(s str, sub str) -> int {
+    mut pieces = 0
+    for _ in s.split(sub) { pieces += 1 }
+    pieces - 1
+}
+
+test "openapi_json: empty router -> valid minimal doc (openapi/info/paths/components)" {
+    ro routes []RouteInfo = []RouteInfo.new()
+    ro doc = openapi_json(routes, "Empty API", "0.0.1")
+    assert(doc.contains("\"openapi\":\"3.0.3\""))
+    assert(doc.contains("\"title\":\"Empty API\""))
+    assert(doc.contains("\"version\":\"0.0.1\""))
+    assert(doc.contains("\"paths\":{}"))
+    assert(doc.contains("\"components\":{\"schemas\":{}}"))
+}
+
+test "openapi_json: a route with NO shapes (raw Handler) -> empty parameters, no requestBody, empty response schema" {
+    mut routes []RouteInfo = []RouteInfo.new()
+    routes.push(RouteInfo{ path: "/health", method: "GET", req_shape: None, resp_shape: None })
+    ro doc = openapi_json(routes, "T", "1")
+    assert(doc.contains("\"/health\":{\"get\":{\"parameters\":[]"))
+    assert(!doc.contains("\"requestBody\""))
+    // still gets the shared error response (every route does, plan item 7).
+    assert(doc.contains("#/components/schemas/HttpErrorBody"))
+}
+
+test "openapi_json: PathParam[T] role -> parameters[in=path]" {
+    ro path_shape = TypeShape.Record("PathParam", [("data", TypeShape.Int)])
+    mut routes []RouteInfo = []RouteInfo.new()
+    routes.push(RouteInfo{ path: "/items/{id}", method: "GET", req_shape: Some(path_shape), resp_shape: None })
+    ro doc = openapi_json(routes, "T", "1")
+    assert(doc.contains("\"in\":\"path\""))
+    assert(doc.contains("\"schema\":{\"type\":\"integer\"}"))
+}
+
+test "openapi_json: Query[T] role -> parameters[in=query]" {
+    ro query_shape = TypeShape.Record("Query", [("data", TypeShape.Str)])
+    mut routes []RouteInfo = []RouteInfo.new()
+    routes.push(RouteInfo{ path: "/search", method: "GET", req_shape: Some(query_shape), resp_shape: None })
+    ro doc = openapi_json(routes, "T", "1")
+    assert(doc.contains("\"in\":\"query\""))
+    assert(doc.contains("\"schema\":{\"type\":\"string\"}"))
+}
+
+test "openapi_json: Json[T] role -> requestBody, not a parameter" {
+    ro json_shape = TypeShape.Record("Json", [("data", TypeShape.Bool)])
+    mut routes []RouteInfo = []RouteInfo.new()
+    routes.push(RouteInfo{ path: "/items", method: "POST", req_shape: Some(json_shape), resp_shape: None })
+    ro doc = openapi_json(routes, "T", "1")
+    assert(doc.contains("\"requestBody\":{\"required\":true,\"content\":{\"application/json\":{\"schema\":{\"type\":\"boolean\"}}}}"))
+    assert(doc.contains("\"parameters\":[]"))
+}
+
+test "openapi_json: Req/Headers/Opaque request shapes are skipped (no parameters, no requestBody)" {
+    ro opaque_shape = TypeShape.Opaque("ServerRequest")
+    mut routes []RouteInfo = []RouteInfo.new()
+    routes.push(RouteInfo{ path: "/whoami", method: "GET", req_shape: Some(opaque_shape), resp_shape: None })
+    ro doc = openapi_json(routes, "T", "1")
+    assert(doc.contains("\"parameters\":[]"))
+    assert(!doc.contains("\"requestBody\""))
+}
+
+test "openapi_json: a multi-field BUNDLE req_shape — role read per-field, by field's OWN wrapper name" {
+    // The canon plan §1.3 shape (`Record(bundle_name, [(field_name,
+    // wrapper_shape), ..])`) — this package's own registration path can't
+    // produce it live yet (extract.nv's bundle-embed compiler-bug note),
+    // but the EMITTER'S handling of it is still real, tested directly here
+    // via a hand-built `TypeShape` (exactly what a FUTURE `#impl(Reflect)`-
+    // derived bundle record's `.reflect()` would return).
+    ro bundle_shape = TypeShape.Record("GetItemReq", [
+        ("id", TypeShape.Record("PathParam", [("data", TypeShape.Int)])),
+        ("filter", TypeShape.Record("Query", [("data", TypeShape.Str)])),
+        ("payload", TypeShape.Record("Json", [("data", TypeShape.Bool)])),
+        ("raw", TypeShape.Opaque("ServerRequest")),
+    ])
+    mut routes []RouteInfo = []RouteInfo.new()
+    routes.push(RouteInfo{ path: "/items/{id}", method: "POST", req_shape: Some(bundle_shape), resp_shape: None })
+    ro doc = openapi_json(routes, "T", "1")
+    assert(doc.contains("\"name\":\"id\",\"in\":\"path\",\"required\":true,\"schema\":{\"type\":\"integer\"}"))
+    assert(doc.contains("\"name\":\"filter\",\"in\":\"query\",\"required\":true,\"schema\":{\"type\":\"string\"}"))
+    assert(doc.contains("\"requestBody\":{\"required\":true,\"content\":{\"application/json\":{\"schema\":{\"type\":\"boolean\"}}}}"))
+    // `raw` (Opaque) contributed no parameter and no requestBody — only 2
+    // parameters total (id, filter), not 3.
+    assert(count_occurrences(doc, "\"in\":") == 2)
+}
+
+test "openapi_json: named Record hoisted into components/schemas + \$ref, deduped across routes" {
+    ro user_shape = TypeShape.Record("User", [("id", TypeShape.Int), ("name", TypeShape.Str)])
+    mut routes []RouteInfo = []RouteInfo.new()
+    routes.push(RouteInfo{ path: "/users/a", method: "GET", req_shape: None, resp_shape: Some(user_shape) })
+    routes.push(RouteInfo{ path: "/users/b", method: "GET", req_shape: None, resp_shape: Some(user_shape) })
+
+    ro doc = openapi_json(routes, "T", "1")
+    assert(count_occurrences(doc, "#/components/schemas/User") == 2)
+    // the FULL schema body (properties+required) appears exactly ONCE —
+    // hoisted once, referenced twice via $ref (plan item 8, dedup by name).
+    assert(count_occurrences(doc, "\"User\":{\"type\":\"object\"") == 1)
+    assert(doc.contains("\"properties\":{\"id\":{\"type\":\"integer\"},\"name\":{\"type\":\"string\"}}"))
+    assert(doc.contains("\"required\":[\"id\",\"name\"]"))
+}
+
+test "openapi_json: Sum(Tagged) -> oneOf + discriminator.propertyName, variants hoisted too" {
+    ro sum_shape = TypeShape.Sum("Shape", SumRepr.Tagged("kind"), [
+        ("Circle", TypeShape.Record("Circle", [("radius", TypeShape.Float)])),
+        ("Square", TypeShape.Record("Square", [("side", TypeShape.Float)])),
+    ])
+    mut routes []RouteInfo = []RouteInfo.new()
+    routes.push(RouteInfo{ path: "/shapes", method: "GET", req_shape: None, resp_shape: Some(sum_shape) })
+    ro doc = openapi_json(routes, "T", "1")
+    assert(doc.contains("\"Shape\":{\"oneOf\":["))
+    assert(doc.contains("\"discriminator\":{\"propertyName\":\"kind\"}"))
+    assert(doc.contains("#/components/schemas/Circle"))
+    assert(doc.contains("#/components/schemas/Square"))
+}
+
+test "openapi_json: Sum(Untagged) -> bare oneOf, no discriminator" {
+    ro sum_shape = TypeShape.Sum("StringOrInt", SumRepr.Untagged, [
+        ("AsStr", TypeShape.Str),
+        ("AsInt", TypeShape.Int),
+    ])
+    mut routes []RouteInfo = []RouteInfo.new()
+    routes.push(RouteInfo{ path: "/either", method: "GET", req_shape: None, resp_shape: Some(sum_shape) })
+    ro doc = openapi_json(routes, "T", "1")
+    assert(doc.contains("\"StringOrInt\":{\"oneOf\":[{\"type\":\"string\"},{\"type\":\"integer\"}]}"))
+    assert(!doc.contains("discriminator"))
+}
+
+test "openapi_json: Arr/Opt inline (not hoisted) — Vec[User]/Option[User] still dedup the INNER named type" {
+    ro user_shape = TypeShape.Record("User", [("id", TypeShape.Int)])
+    ro list_shape = TypeShape.Arr(user_shape)
+    ro maybe_shape = TypeShape.Opt(user_shape)
+    mut routes []RouteInfo = []RouteInfo.new()
+    routes.push(RouteInfo{ path: "/users", method: "GET", req_shape: None, resp_shape: Some(list_shape) })
+    routes.push(RouteInfo{ path: "/users/first", method: "GET", req_shape: None, resp_shape: Some(maybe_shape) })
+    ro doc = openapi_json(routes, "T", "1")
+    assert(doc.contains("\"type\":\"array\",\"items\":{\"$ref\":\"#/components/schemas/User\"}"))
+    // `Opt` unwraps to the inner schema directly (documented simplification,
+    // no `nullable` annotation) — still a `$ref` to the SAME hoisted `User`.
+    assert(count_occurrences(doc, "\"User\":{\"type\":\"object\"") == 1)
+}
+
+test "openapi_json: two DIFFERENT paths + multiple methods on the SAME path both show up correctly" {
+    mut routes []RouteInfo = []RouteInfo.new()
+    routes.push(RouteInfo{ path: "/todos", method: "GET", req_shape: None, resp_shape: None })
+    routes.push(RouteInfo{ path: "/todos", method: "POST", req_shape: None, resp_shape: None })
+    routes.push(RouteInfo{ path: "/todos/{id}", method: "DELETE", req_shape: None, resp_shape: None })
+    ro doc = openapi_json(routes, "T", "1")
+    assert(doc.contains("\"/todos\":{\"get\":{"))
+    assert(doc.contains("\"post\":{"))
+    assert(doc.contains("\"/todos/{id}\":{\"delete\":{"))
+}
