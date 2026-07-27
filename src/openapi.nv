@@ -1,0 +1,404 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// nova-http: openapi.nv — OpenAPI 3.0 emitter (Plan 222.8 Ф.3). Walks
+// `Router.introspect() -> []RouteInfo` (server_router.nv, Ф.2) and writes
+// OpenAPI JSON DIRECTLY from `TypeShape` (std/reflect.nv, D438) — no
+// intermediate typed `JsonSchema` type (plan §0.4, deliberately rejected:
+// "чем TypeShape не устраивает? ничем, JSON пишется напрямую из TypeShape").
+//
+// Role of a bundle-record FIELD (`parameters[in=path]` / `parameters[in=
+// query]` / `requestBody`) is read off the extractor-WRAPPER's OWN type
+// NAME embedded in the `TypeShape.Record` extract.nv's manual `Reflect`
+// impls produce (`PathParam`/`Query`/`Json` — plan §1.3); `Req`/`Headers`/
+// `Opaque`/anything else is skipped (not schema-worthy). `role_fields`
+// below unifies TWO shapes of `req_shape`: a multi-field BUNDLE record
+// (`Record("GetUserReq", [("id", Record("PathParam", ..)), ..])` — the
+// plan's canon form, CURRENTLY BLOCKED by a compiler bug, see extract.nv's
+// `[M-generic-fn-value-param-call-mono-collision]`/bundle-embed notes) and
+// a SINGLE extractor used directly as `T` (`Record("PathParam", ..)` at the
+// TOP level — the workaround shape this package's own tests/examples use
+// today, until that compiler gap closes).
+//
+// File placement: root peer (`module polaris`, same as `server.nv`/
+// `server_router.nv`/`response.nv`/`extract.nv`) — NONE of the new types
+// here (`SchemaBuild`/`OperationBuild`/`ReqParts`/`ParamEntry`/
+// `HoistedSchema`) embed `RouteInfo`/`TypeShape`/`Router`/etc. BY VALUE as a
+// struct field (only as plain fn params/returns, which do not need the
+// referenced type's C struct COMPLETE at THIS file's own declaration site —
+// see `extract.nv`'s `Req` saga, server.nv, for the confirmed hazard this
+// deliberately avoids) — so, unlike `extract.nv`/`server_router.nv`, this
+// file's sort position relative to them is NOT load-bearing.
+//
+// Named/tagged types (`Record`/`Sum`) are hoisted into `components/schemas`
+// + `$ref`, threaded through the walk as an EXPLICIT return value
+// (`SchemaBuild.hoisted`/`OperationBuild.hoisted`, `[]HoistedSchema`), NOT
+// an in-out `mut` Vec PARAMETER — sidesteps any ambiguity about whether
+// non-receiver `mut`-param Vec mutations reliably propagate back to the
+// caller (untested path in this package; the FUNCTIONAL "thread it through
+// the return value" shape is unambiguous).
+//
+// `HoistedSchema` (a NAMED record), NOT a bare `(str, str)` tuple Vec, for
+// the accumulator — found live during this wave: a `[](str, str)` Vec used
+// the SAME way `ServerRequest.params`/`ParamsDeserializer.pairs` already do
+// elsewhere in this package CC-FAILed here ("passing '_NovaTuple_2_8_
+// nova_str_8_nova_str' to parameter of incompatible type 'NovaValue_
+// MethodRouter *'" — a cross-mono-instance slot collision, same DEFECT
+// CLASS as `[M-generic-fn-value-param-call-mono-collision]`/[M-concrete-
+// instance-arity-overload-mangle] in extract.nv, just a different pair of
+// colliding types) — the tuple-Vec shape ITSELF is proven fine elsewhere
+// (server_router.nv's own `[](str, str)` path-param pairs), so this reads
+// as a whole-CU mono-table capacity/collision issue this file's ADDITIONAL
+// generic instantiations tipped over, not a defect in tuples per se.
+// Switching the ACCUMULATOR to a small named record (same rationale
+// `MethodEntry`/`CollectedRoute`/etc. already document in server_router.nv:
+// "sidesteps relying on untested tuple-monomorphization path") cleared it.
+// `[](str, TypeShape)` (record fields/sum variants) is NOT swapped out —
+// that shape is std/reflect.nv's OWN `TypeShape.Record`/`Sum` payload, not
+// something this file introduces, and iterating it (`for (n, s) in fields`)
+// compiled/ran clean.
+
+module polaris
+
+import std.reflect.{TypeShape, SumRepr}
+import std.encoding.json.{JsonValue}
+import std.text
+
+// ── small value carriers (named records — same rationale as MethodEntry/
+// CollectedRoute in server_router.nv: sidesteps relying on untested
+// tuple-of-non-str-scalar Vec element shapes) ──────────────────────────────
+
+type HoistedSchema  value { ro name str, ro schema str }
+type SchemaBuild    value { ro json str, ro hoisted []HoistedSchema }
+type OperationBuild value { ro json str, ro hoisted []HoistedSchema }
+type ParamEntry     value { ro name str, ro loc str, ro schema_json str }
+type ReqParts       value { ro params []ParamEntry, ro body_json Option[str], ro hoisted []HoistedSchema }
+
+// ── JSON string escaping (reuses the SAME encoder the rest of the package
+// uses for wire JSON, std/encoding/json.nv — no hand-rolled escaping) ──────
+
+fn json_str(s str) -> str => JsonValue.str(s).to_str()
+
+fn ref_json(name str) -> str {
+    ro path = "#/components/schemas/${name}"
+    "{\"$ref\":${json_str(path)}}"
+}
+
+fn find_hoisted(hoisted []HoistedSchema, name str) -> bool {
+    for h in hoisted { if h.name == name { return true } }
+    false
+}
+
+// ── TypeShape -> JSON Schema fragment (plan §1.3 items 8-9) ───────────────
+
+/// Hoists named `Record`/`Sum` into `hoisted` (dedup by name, plan item 8)
+/// and returns a `$ref` for them; everything else inlines. `Opt(inner)`
+/// unwraps to the inner schema (documented simplification — OpenAPI 3.0
+/// has no clean `nullable` + `$ref` composition; not attempted here).
+fn shape_to_schema(ts TypeShape, hoisted_in []HoistedSchema) -> SchemaBuild {
+    match ts {
+        Str   => SchemaBuild{ json: "{\"type\":\"string\"}", hoisted: hoisted_in }
+        Int   => SchemaBuild{ json: "{\"type\":\"integer\"}", hoisted: hoisted_in }
+        Float => SchemaBuild{ json: "{\"type\":\"number\"}", hoisted: hoisted_in }
+        Bool  => SchemaBuild{ json: "{\"type\":\"boolean\"}", hoisted: hoisted_in }
+        Unit  => SchemaBuild{ json: "{}", hoisted: hoisted_in }
+        Opaque(_) => SchemaBuild{ json: "{}", hoisted: hoisted_in }
+        Ref(name) => SchemaBuild{ json: ref_json(name), hoisted: hoisted_in }
+        Arr(items) => {
+            ro inner = shape_to_schema(items, hoisted_in)
+            SchemaBuild{ json: "{\"type\":\"array\",\"items\":${inner.json}}", hoisted: inner.hoisted }
+        }
+        Opt(inner_ts) => shape_to_schema(inner_ts, hoisted_in)
+        Record(name, fields) => {
+            if find_hoisted(hoisted_in, name) {
+                SchemaBuild{ json: ref_json(name), hoisted: hoisted_in }
+            } else {
+                ro built = record_props_schema(fields, hoisted_in)
+                mut new_hoisted = built.hoisted
+                ro required = required_names_json(fields)
+                new_hoisted.push(HoistedSchema{ name, schema: "{\"type\":\"object\",\"properties\":{${built.json}},\"required\":${required}}" })
+                SchemaBuild{ json: ref_json(name), hoisted: new_hoisted }
+            }
+        }
+        Sum(name, repr, variants) => {
+            if find_hoisted(hoisted_in, name) {
+                SchemaBuild{ json: ref_json(name), hoisted: hoisted_in }
+            } else {
+                ro built = sum_variants_schema(variants, hoisted_in)
+                mut new_hoisted = built.hoisted
+                // Tagged -> oneOf + discriminator.propertyName; TaggedContent
+                // /Untagged/External -> bare oneOf (plan §1.3 item 9 — the
+                // {tag,content}-object wrapping for TaggedContent is NOT
+                // separately synthesized here: each variant's OWN shape
+                // (already the synthetic per-variant Record std/reflect.nv's
+                // docstring describes) is what `sum_variants_schema` walks;
+                // documented simplification, not a full JSON-Schema
+                // discriminator model for every repr).
+                ro body = match repr {
+                    Tagged(tag_field) => "{\"oneOf\":[${built.json}],\"discriminator\":{\"propertyName\":${json_str(tag_field)}}}"
+                    _ => "{\"oneOf\":[${built.json}]}"
+                }
+                new_hoisted.push(HoistedSchema{ name, schema: body })
+                SchemaBuild{ json: ref_json(name), hoisted: new_hoisted }
+            }
+        }
+    }
+}
+
+fn required_names_json(fields [](str, TypeShape)) -> str {
+    mut names []str = []str.new()
+    for (fname, fshape) in fields {
+        match fshape {
+            Opt(_) => ()
+            _      => names.push(json_str(fname))
+        }
+    }
+    "[${names.join(",")}]"
+}
+
+fn record_props_schema(fields [](str, TypeShape), hoisted_in []HoistedSchema) -> SchemaBuild {
+    // `.clone()` — `hoisted_in` is `ro` (D176 default); a `mut` binding off
+    // a `ro` source needs an explicit independent copy (D246,
+    // [M-ro-launder-via-mut-binding]) since this fn's own semantics is
+    // FUNCTIONAL (returns the updated list, never mutates the caller's
+    // binding in place — see file banner).
+    mut hoisted = hoisted_in.clone()
+    mut props []str = []str.new()
+    for (fname, fshape) in fields {
+        ro built = shape_to_schema(fshape, hoisted)
+        hoisted = built.hoisted
+        props.push("${json_str(fname)}:${built.json}")
+    }
+    SchemaBuild{ json: props.join(","), hoisted }
+}
+
+fn sum_variants_schema(variants [](str, TypeShape), hoisted_in []HoistedSchema) -> SchemaBuild {
+    // `.clone()` — same D246 rule as `record_props_schema` above.
+    mut hoisted = hoisted_in.clone()
+    mut parts []str = []str.new()
+    for (vname, vshape) in variants {
+        ro built = shape_to_schema(vshape, hoisted)
+        hoisted = built.hoisted
+        parts.push(built.json)
+    }
+    SchemaBuild{ json: parts.join(","), hoisted }
+}
+
+// ── bundle-field role detection (plan §1.3 item 6) ─────────────────────────
+
+/// `Some("PathParam"|"Query"|"Json")` if `shape` is one of the extractor
+/// wrappers (by NAME — extract.nv's manual `Reflect` impls); `None`
+/// otherwise (`Req`/`Headers`/`Opaque`/plain scalars/unknown records).
+fn wrapper_role(shape TypeShape) -> Option[str] {
+    match shape {
+        Record(name, _) => {
+            if name == "PathParam" || name == "Query" || name == "Json" { Some(name) } else { None }
+        }
+        _ => None
+    }
+}
+
+/// The `("data", InnerShape)` field extract.nv's wrapper `Reflect` impls
+/// always produce — unwraps a wrapper's OWN reflected shape down to the
+/// shape of the value it decodes into.
+fn wrapper_inner_shape(shape TypeShape) -> TypeShape {
+    match shape {
+        Record(_, fields) => {
+            for (fname, fshape) in fields {
+                if fname == "data" { return fshape }
+            }
+            Str
+        }
+        _ => Str
+    }
+}
+
+/// Unifies the two `req_shape` top-level shapes this package's registration
+/// paths can produce (see file banner): a bundle record's OWN fields, or —
+/// if `T` was a single extractor wrapper used directly — a one-element list
+/// wrapping the shape itself under its own wrapper name.
+fn role_fields(shape TypeShape) -> [](str, TypeShape) {
+    match wrapper_role(shape) {
+        Some(name) => {
+            mut out [](str, TypeShape) = []
+            out.push((name, shape))
+            out
+        }
+        None => match shape {
+            Record(_, fields) => fields
+            _ => []
+        }
+    }
+}
+
+// ── request parts: parameters[in=path|query] + requestBody (plan item 6) ──
+
+fn build_req_parts(req_shape Option[TypeShape], hoisted_in []HoistedSchema) -> ReqParts {
+    match req_shape {
+        None => ReqParts{ params: []ParamEntry.new(), body_json: None, hoisted: hoisted_in }
+        Some(shape) => {
+            // `.clone()` — same D246 rule as `record_props_schema` above.
+            mut hoisted = hoisted_in.clone()
+            mut params []ParamEntry = []ParamEntry.new()
+            mut body Option[str] = None
+            for (fname, fshape) in role_fields(shape) {
+                match wrapper_role(fshape) {
+                    Some(role) => {
+                        ro inner = wrapper_inner_shape(fshape)
+                        ro built = shape_to_schema(inner, hoisted)
+                        hoisted = built.hoisted
+                        // `fname` is the wrapper's own type name (e.g.
+                        // "PathParam") in the single-extractor-as-`T` shape
+                        // (no per-field name exists there — documented
+                        // limitation, see file banner); falls back to
+                        // `"value"` so the emitted parameter name is at
+                        // least a valid OpenAPI identifier, not a Rust-ish
+                        // wrapper name. The bundle shape's REAL field names
+                        // (once the compiler bug closes) flow through here
+                        // unchanged.
+                        ro param_name = if role == fname { "value" } else { fname }
+                        if role == "PathParam" {
+                            params.push(ParamEntry{ name: param_name, loc: "path", schema_json: built.json })
+                        } else if role == "Query" {
+                            params.push(ParamEntry{ name: param_name, loc: "query", schema_json: built.json })
+                        } else if role == "Json" {
+                            body = Some(built.json)
+                        }
+                    }
+                    None => ()  // Req/Headers/Opaque/unknown -> skipped (plan §1.3)
+                }
+            }
+            ReqParts{ params, body_json: body, hoisted }
+        }
+    }
+}
+
+// ── one operation (method+path) object, plan item 7 (Result[T,E] ->
+// responses.200 = shape(T); this package's `TypedRoute.resp_shape` already
+// carries just the SUCCESS shape — `E` is fixed to `HttpError` package-wide,
+// see extract.nv, so the error branch is the SAME fixed `HttpErrorBody`
+// schema for every route, hoisted once) ────────────────────────────────────
+
+fn ensure_http_error_hoisted(hoisted_in []HoistedSchema) -> []HoistedSchema {
+    // `.clone()` (both branches) — same D246 rule as `record_props_schema`
+    // above (`hoisted_in` is `ro`; the mut-default return type means the
+    // caller could otherwise mutate content the `ro` source still sees).
+    if find_hoisted(hoisted_in, "HttpErrorBody") { return hoisted_in.clone() }
+    mut out = hoisted_in.clone()
+    out.push(HoistedSchema{ name: "HttpErrorBody", schema: "{\"type\":\"object\",\"properties\":{\"error\":{\"type\":\"string\"},\"message\":{\"type\":\"string\"}},\"required\":[\"error\",\"message\"]}" })
+    out
+}
+
+fn build_operation(info RouteInfo, hoisted_in []HoistedSchema) -> OperationBuild {
+    ro parts = build_req_parts(info.req_shape, hoisted_in)
+    mut hoisted = parts.hoisted
+
+    mut params_json []str = []str.new()
+    for p in parts.params {
+        params_json.push("{\"name\":${json_str(p.name)},\"in\":${json_str(p.loc)},\"required\":true,\"schema\":${p.schema_json}}")
+    }
+
+    ro resp_json = match info.resp_shape {
+        Some(shape) => {
+            ro b = shape_to_schema(shape, hoisted)
+            hoisted = b.hoisted
+            b.json
+        }
+        None => "{}"
+    }
+    hoisted = ensure_http_error_hoisted(hoisted)
+
+    ro body_part = match parts.body_json {
+        Some(bj) => ",\"requestBody\":{\"required\":true,\"content\":{\"application/json\":{\"schema\":${bj}}}}"
+        None => ""
+    }
+
+    ro json = "{\"parameters\":[${params_json.join(",")}]${body_part},\"responses\":{\"200\":{\"description\":\"OK\",\"content\":{\"application/json\":{\"schema\":${resp_json}}}},\"default\":{\"description\":\"Error\",\"content\":{\"application/json\":{\"schema\":{\"$ref\":\"#/components/schemas/HttpErrorBody\"}}}}}}"
+    OperationBuild{ json, hoisted }
+}
+
+// `_` catch-all passes `m` through AS-IS rather than lower-casing it:
+// `str @to_lower()` lives in the opt-in `std.unicode` peer (NOT prelude,
+// table cost paid only by importers) — not worth pulling in for a branch
+// this package's OWN registration API (`@get`/`@post`/`@put`/`@delete`/
+// `@patch`/`@get_typed`/…) never actually reaches (HEAD is dispatch-time
+// GET-fallback, never its own registered `RouteInfo.method`; there is no
+// public way to register OPTIONS/TRACE/CONNECT today).
+fn method_key(m str) -> str => match m {
+    "GET"    => "get"
+    "POST"   => "post"
+    "PUT"    => "put"
+    "DELETE" => "delete"
+    "PATCH"  => "patch"
+    _        => m
+}
+
+// ── paths object: one entry per PATH, methods nested (plan item 6) ────────
+//
+// Deliberately NOT a `[]PathGroup`-style intermediate (a NEW struct
+// embedding `RouteInfo` by value) — `RouteInfo` is declared in
+// `server_router.nv`, which sorts AFTER this file alphabetically (`o` <
+// `s`, D78) — embedding it in a NEW struct HERE would need its C struct
+// complete at THIS file's declaration site, the exact hazard `extract.nv`'s
+// `Req` saga hit (see file banner). A double pass over the flat
+// `[]RouteInfo` (O(n²) in route count — fine, route counts are small,
+// build-time cost anyway) sidesteps it entirely: `RouteInfo` only ever
+// appears as a fn PARAMETER type here, never as a new struct's field.
+
+fn unique_paths(routes []RouteInfo) -> []str {
+    mut out []str = []str.new()
+    for r in routes {
+        mut found = false
+        for p in out { if p == r.path { found = true } }
+        if !found { out.push(r.path) }
+    }
+    out
+}
+
+fn build_path_item(path str, routes []RouteInfo, hoisted_in []HoistedSchema) -> OperationBuild {
+    // `.clone()` — same D246 rule as `record_props_schema` above.
+    mut hoisted = hoisted_in.clone()
+    mut entries []str = []str.new()
+    for r in routes {
+        if r.path == path {
+            ro built = build_operation(r, hoisted)
+            hoisted = built.hoisted
+            entries.push("${json_str(method_key(r.method))}:${built.json}")
+        }
+    }
+    OperationBuild{ json: "{${entries.join(",")}}", hoisted }
+}
+
+// ── top-level document (plan §1.3, in-process aide-style emitter) ─────────
+
+/// Render `routes` (`Router.introspect()`) as an OpenAPI 3.0 JSON document.
+/// Pure/no I/O — `openapi_handler` below is the in-process `/openapi.json`
+/// wiring (plan item 10, explicit registration — no magic in `serve_router`).
+#stable(since = "0.1")
+export fn openapi_json(routes []RouteInfo, title str, version str) -> str {
+    ro paths = unique_paths(routes)
+    mut hoisted []HoistedSchema = []HoistedSchema.new()
+    mut path_entries []str = []str.new()
+    for p in paths {
+        ro built = build_path_item(p, routes, hoisted)
+        hoisted = built.hoisted
+        path_entries.push("${json_str(p)}:${built.json}")
+    }
+
+    mut schema_entries []str = []str.new()
+    for h in hoisted {
+        schema_entries.push("${json_str(h.name)}:${h.schema}")
+    }
+
+    "{\"openapi\":\"3.0.3\",\"info\":{\"title\":${json_str(title)},\"version\":${json_str(version)}},\"paths\":{${path_entries.join(",")}},\"components\":{\"schemas\":{${schema_entries.join(",")}}}}"
+}
+
+/// A `Handler` serving the pre-rendered `openapi_json(routes, ..)` document
+/// — computed ONCE at call time (router-setup time, before `serve`), zero
+/// cost per request (plan §1.3: "кэшируется в памяти... на запрос нулевая
+/// цена"). Registration is EXPLICIT ("одна дверь", plan §6 q4):
+/// `r.get("/openapi.json", openapi_handler(r.introspect(), "My API",
+/// "1.0.0"))!!` — never automatic inside `serve_router`.
+#stable(since = "0.1")
+export fn openapi_handler(routes []RouteInfo, title str, version str) -> Handler {
+    ro cached = openapi_json(routes, title, version)
+    fn(_req ServerRequest) -> ServerResponse => ServerResponse.bytes(200, "application/json", cached.bytes())
+}

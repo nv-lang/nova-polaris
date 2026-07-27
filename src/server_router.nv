@@ -40,6 +40,14 @@
 module polaris
 
 import http.{HttpError, ErrorKind}
+// Plan 222.8 Ф.2: `RouteInfo.req_shape`/`resp_shape` below + `@introspect()`
+// (server_router.nv-own end section, after `@collect_from`) — `TypeShape` is
+// a domain-neutral std type (std/reflect.nv, D438), no cycle risk importing
+// it from a normal cross-MODULE `import` (unlike same-module peer-file
+// ordering, D78, this is a genuinely separate module). `std.text` is `[]str
+// @join(sep)`, used by `@introspect()`'s path reconstruction.
+import std.reflect.{TypeShape}
+import std.text
 
 // ── MethodRouter (composable per-route method dispatch) ───────────────────────
 
@@ -255,6 +263,21 @@ fn method_not_allowed(allow []str) -> ServerResponse {
 type MatchResult value { ro methods MethodRouter, ro params [](str, str) }
 type CollectedRoute value { ro segs []str, ro methods MethodRouter }
 
+/// One registered route's introspection snapshot — path/method the trie
+/// already carries + optional request/response shapes. Plan 222.8 Ф.2 (the
+/// Ф.3 OpenAPI emitter, `openapi.nv`, is the primary consumer). Shapes are
+/// `Some` only for routes registered through the typed wrapper
+/// (`extract.nv`'s `typed(...)` + `Router.@get_typed`/`@post_typed`/…) — a
+/// raw `Handler` registered via `@get`/`@post`/…/`@route` carries no shape
+/// info, honestly `None` ("schema unknown", not guessed — plan §1.3).
+#stable(since = "0.1")
+export type RouteInfo value {
+    ro path       str
+    ro method     str
+    ro req_shape  Option[TypeShape]
+    ro resp_shape Option[TypeShape]
+}
+
 // ── Router ─────────────────────────────────────────────────────────────────────
 
 /// Segment-trie HTTP router (Plan 222.1, Axum-class): static segments, `{param}`,
@@ -274,6 +297,12 @@ export type Router value {
     // time. NOT consulted by `@dispatch`/`@fallback` directly (see
     // `middleware.nv`'s banner for the `Router.@fallback` exemption).
     mut layers   []Middleware
+    // Plan 222.8 Ф.2: shapes captured by the typed-registration wrapper
+    // (`extract.nv`'s `typed(...)` + `@get_typed`/`@post_typed`/…) — a flat
+    // side list keyed by (path, method), consulted by `@introspect()` below.
+    // NOT populated by the raw `@get`/`@post`/…/`@route` path (no shape to
+    // capture there — a bare `Handler` carries no type info at all).
+    mut shapes   []RouteInfo
 }
 
 /// Empty router (a bare root node, no routes, no fallback, no layers).
@@ -281,7 +310,7 @@ export type Router value {
 export fn Router.new() -> Router {
     mut nodes []RouteNode = []RouteNode.new()
     nodes.push(RouteNode.new())
-    { nodes, fallback: None, layers: []Middleware.new() }
+    { nodes, fallback: None, layers: []Middleware.new(), shapes: []RouteInfo.new() }
 }
 
 /// Global 404 handler (property write) — served when NO path in the trie
@@ -474,6 +503,42 @@ fn Router @collect_from(idx int, prefix []str) -> []CollectedRoute {
         None => ()
     }
     out
+}
+
+// `["users", "{id}"]` -> `"/users/{id}"` (root, no segments -> `"/"`); the
+// bracket-formatted param/catch-all segments already come out of
+// `@collect_from` (`extend_segs(prefix, "{${pe.name}}")` / `"{*${ce.name}}"`
+// above) — this just joins + prefixes, no further reformatting.
+fn route_path_str(segs []str) -> str {
+    if segs.len() == 0 { "/" } else { "/${segs.join("/")}" }
+}
+
+/// Snapshot every route this router carries: path (reconstructed from the
+/// trie, the SAME walk `@nest` itself uses) + method + request/response
+/// shapes (`@shapes` — `None` for any (path, method) the typed-registration
+/// wrapper never touched). Plan 222.8 Ф.2 (Ф.3's OpenAPI emitter,
+/// `openapi.nv`, is the primary consumer).
+#stable(since = "0.1")
+export fn Router @introspect() -> []RouteInfo {
+    ro collected = @collect_from(0, []str.new())
+    mut out = []RouteInfo.new()
+    for r in collected {
+        ro path = route_path_str(r.segs)
+        for e in r.methods.routes {
+            out.push(@shape_for(path, e.method))
+        }
+    }
+    out
+}
+
+// `@shapes` only holds entries the typed wrapper pushed (extract.nv); a
+// plain `@get`/`@post`/… route has none — default to `None`/`None`, honest
+// "schema unknown" rather than a guess (plan §1.3).
+fn Router @shape_for(path str, method str) -> RouteInfo {
+    for s in @shapes {
+        if s.path == path && s.method == method { return s }
+    }
+    RouteInfo{path, method, req_shape: None, resp_shape: None}
 }
 
 // Trie lookup with Axum-class precedence (literal > param > catch-all,

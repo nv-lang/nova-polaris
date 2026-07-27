@@ -21,6 +21,7 @@
 module polaris
 
 import std.encoding.serde.{Serialize, Deserialize}
+import std.reflect.{Reflect, TypeShape}
 
 // `get_req` already defined in router_test.nv (same module, no re-declare).
 fn post_json_req(path str, body str) -> []u8 =>
@@ -121,13 +122,17 @@ test "Headers: exposes the request's header map" {
 // Router dispatch (closes 221.1 №26, [M-generic-static-method-value-arg-
 // addr-mismatch]; see this file's banner) ──────────────────────────────────
 
-#impl(Serialize + Deserialize)
+// Plan 222.8 Ф.2: `Reflect` added alongside `Serialize + Deserialize` (below,
+// §"typed registration") — these are the inner `T` of `PathParam[T]`/
+// `Query[T]`/`Json[T]`, whose OWN `#impl(Reflect)` (extract.nv) bounds `T
+// Reflect`.
+#impl(Serialize + Deserialize + Reflect)
 type UserIdParams value { ro id int }
 
-#impl(Serialize + Deserialize)
+#impl(Serialize + Deserialize + Reflect)
 type SearchQuery value { ro q str, ro limit int }
 
-#impl(Serialize + Deserialize)
+#impl(Serialize + Deserialize + Reflect)
 type CreateItem value { ro name str, ro qty int }
 
 test "PathParam[T]: round-trip through Router dispatch" {
@@ -235,4 +240,115 @@ test "PathParam+Query+Json composed on one route; 404/405 unaffected on the same
     // 405: path matches (/items/{id}) but method doesn't (only POST registered)
     ro wire_405 = serve_once(r, get_req("/items/7"))
     assert(status_line(wire_405) == "HTTP/1.1 405 Method Not Allowed")
+}
+
+// ── Plan 222.8 Ф.2: `Req` passthrough extractor, `Reflect` shapes on the
+// extractor wrappers, `typed(...)` + `Router.@get_typed`/`@post_typed` +
+// `Router.introspect()` ────────────────────────────────────────────────────
+
+test "Req: passthrough FromRequest (never fails) + Opaque reflect shape" {
+    mut r = Router.new()
+    r.get("/whoami", fn(req ServerRequest) -> ServerResponse {
+        match Req.from_request(req) {
+            Ok(rq) => ServerResponse.text(200, "path=${rq.data().path()}")
+            Err(e) => e.into_response()
+        }
+    })!!
+    ro wire = serve_once(r, get_req("/whoami"))
+    ro s = unsafe { wire.to_str_unchecked() }
+    assert(s.contains("path=/whoami"))
+
+    assert(match Req.reflect() { Opaque(name) => name == "ServerRequest", _ => false })
+}
+
+test "PathParam[T]/Query[T]/Json[T]: reflect shape names the wrapper type + carries the inner shape" {
+    assert(match PathParam[UserIdParams].reflect() {
+        Record(name, fields) => name == "PathParam" && fields.len() == 1
+        _ => false
+    })
+    assert(match Query[SearchQuery].reflect() {
+        Record(name, fields) => name == "Query" && fields.len() == 1
+        _ => false
+    })
+    assert(match Json[CreateItem].reflect() {
+        Record(name, fields) => name == "Json" && fields.len() == 1
+        _ => false
+    })
+    // Headers/Bytes/Text stay Opaque (no schema, not in the plan's Path/
+    // Query/Json role set — plan §1.3 "Req/Headers/Opaque → пропускается").
+    assert(match Headers.reflect() { Opaque(_) => true, _ => false })
+    assert(match Bytes.reflect()   { Opaque(_) => true, _ => false })
+    assert(match Text.reflect()    { Opaque(_) => true, _ => false })
+}
+
+// NOTE (compiler-bug marker candidates, NOT fixed here — outside Ф.2 scope,
+// see extract.nv's `[M-generic-fn-value-param-call-mono-collision]` comment
+// above `TypedRoute` for the full diagnosis): a generic `typed(handler_fn)`
+// wrapper that DECODES via `T.from_request`/calls the caller's handler
+// fn/ENCODES via `R`'s `IntoResponse` — the plan's original single-wrapper
+// design — does not codegen (calling a GENERIC fn-VALUE parameter from
+// inside a generic function cross-contaminates an unrelated same-CU
+// closure's call signature). SEPARATELY, the plan §1.3 CANON bundle shape
+// (`type GetUserReq { id PathParam[UserId], filter Query[Filter], .. }` — a
+// NEW record whose FIELDS are extractor-wrapper generic instantiations)
+// ALSO does not codegen (minimal repro, not http-specific: `type Wrap[T]
+// value { data T }` + `type Bundle value { w Wrap[int] }` CC-FAILs "unknown
+// type name 'NovaValue_Wrap____nova_int'" at `Bundle`'s own struct decl).
+// `TypedRoute`/`Router.@get_typed`/etc./`Router.introspect()` themselves
+// don't hit either gap (no generic fn-value calls, no generic-wrapper struct
+// fields) — exercised below via the WORKAROUND shape (`TypedRoute` built as
+// a direct struct literal, `T`/`R` = a single extractor wrapper directly,
+// `Json[CreateItem]`, not a multi-field bundle). Reported to integrator for
+// `docs/plans/backlog-followups.md` registration (this worktree does not
+// touch the nova repo).
+
+test "TypedRoute (direct construction) + Router.@post_typed: end-to-end decode/encode, introspect() reports shapes" {
+    mut r = Router.new()
+    // A plain no-extractor route on the SAME router — introspect() must
+    // report it too, honestly `None`/`None` (plan §1.3: raw `Handler` ->
+    // "schema unknown", not guessed).
+    r.get("/health", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(200, "ok"))!!
+    r.post_typed("/items/{id}", TypedRoute{
+        handler: fn(req ServerRequest) -> ServerResponse {
+            match Json[CreateItem].from_request(req) {
+                Ok(j)  => j.into_response()
+                Err(e) => e.into_response()
+            }
+        },
+        req_shape: Some(Json[CreateItem].reflect()),
+        resp_shape: Some(Json[CreateItem].reflect()),
+    })!!
+
+    ro wire = serve_once(r, post_json_req("/items/7?q=widgets&limit=1", "{\"name\":\"gizmo\",\"qty\":5}"))
+    ro s = unsafe { wire.to_str_unchecked() }
+    assert(status_line(wire) == "HTTP/1.1 200 OK")
+    assert(s.contains("\"name\":\"gizmo\""))
+    assert(s.contains("\"qty\":5"))
+
+    // introspect(): the typed route carries Some/Some shapes naming `Json`
+    // (the wrapper — plan §1.3 role-by-name) for BOTH request and response;
+    // the plain route carries None/None.
+    ro routes = r.introspect()
+    mut saw_typed = false
+    mut saw_plain = false
+    for info in routes {
+        if info.path == "/items/{id}" && info.method == "POST" {
+            saw_typed = true
+            assert(match info.req_shape {
+                Some(shape) => match shape { Record(name, _) => name == "Json", _ => false }
+                None => false
+            })
+            assert(match info.resp_shape {
+                Some(shape) => match shape { Record(name, _) => name == "Json", _ => false }
+                None => false
+            })
+        }
+        if info.path == "/health" && info.method == "GET" {
+            saw_plain = true
+            assert(info.req_shape.is_none())
+            assert(info.resp_shape.is_none())
+        }
+    }
+    assert(saw_typed)
+    assert(saw_plain)
 }

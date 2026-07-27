@@ -205,6 +205,30 @@ export fn ServerRequest mut @multipart_limits(v MultipartLimits) -> @ {
     @multipart_limits = v
 }
 
+/// `Req` — the raw `ServerRequest`, unparsed/undecoded: a passthrough
+/// extractor-wrapper for bundle-record fields (Plan 222.8 §1.3) that need
+/// the WHOLE request object alongside typed extractors on OTHER fields of
+/// the same bundle (owner 2026-07-27: "нам ещё ServerRequest надо вместе с
+/// UserQuery"). Declared HERE (not in `extract.nv`, its conceptual home)
+/// SPECIFICALLY because it embeds `ServerRequest` BY VALUE — a value-typed
+/// field needs its type COMPLETE at the embedding site (C struct layout
+/// needs `sizeof`, same rationale as `StreamBody` right below) — `extract.nv`
+/// sorts BEFORE this file in the folder-module peer order (D78: plain
+/// alphabetical, `extract` < `server`, despite that file's own banner
+/// claiming otherwise for `Router`/`Json[T]` — those are function-pointer/
+/// generic-`T` wraps, which don't force full embed-completeness the way a
+/// concrete struct field does; empirically confirmed by a real CC-FAIL
+/// "field has incomplete type 'NovaValue_ServerRequest'" when this type was
+/// first declared over there). `FromRequest`/`Reflect` impls stay in
+/// `extract.nv` (protocol impls carry no embedding-completeness requirement,
+/// only the STRUCT declaration does).
+#stable(since = "0.1")
+export type Req value { priv data ServerRequest }
+
+/// The raw request (property accessor, D117 — not a bare field).
+#stable(since = "0.1")
+export fn Req @data() -> ServerRequest => @data
+
 // `StreamBody` (streamed response body chunk-producer, `[M-178-server-streaming]`)
 // is declared here, ahead of `ServerResponse`, because `ServerResponse` embeds it
 // BY VALUE via `Option[StreamBody]` — a value-typed field must be a complete type
