@@ -49,8 +49,7 @@ fn mark_apply(tag str, next Handler, req ServerRequest) -> ServerResponse {
 // fn-type/newtype expectation codegens params as `nova_int`, the known
 // finding this file already documented for `fn(Handler) -> Handler`).
 fn mark(tag str) -> Middleware {
-    ro t = tag
-    middleware(fn(req ServerRequest, next Handler) -> ServerResponse => mark_apply(t, next, req))
+    middleware(fn(req ServerRequest, next Handler) -> ServerResponse => mark_apply(tag, next, req))
 }
 
 fn base_ok() -> Handler =>

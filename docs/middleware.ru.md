@@ -48,8 +48,7 @@ fn add_tag(tag str, next Handler, req ServerRequest) -> ServerResponse {
 }
 
 fn tag_layer(tag str) -> Middleware {
-    ro t = tag
-    middleware(fn(req ServerRequest, next Handler) -> ServerResponse => add_tag(t, next, req))
+    middleware(fn(req ServerRequest, next Handler) -> ServerResponse => add_tag(tag, next, req))
 }
 ```
 
