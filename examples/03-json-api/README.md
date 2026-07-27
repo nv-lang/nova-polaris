@@ -27,7 +27,24 @@ curl -X PUT -H 'Content-Type: application/json' -d '{"title":"buy milk","done":t
 # {"title":"buy milk","done":true,"id":1}
 curl -X DELETE http://localhost:18084/todos/1     # 204
 curl http://localhost:18084/todos/99              # 404, structured HttpError JSON body
+curl -X POST -H 'Content-Type: application/json' -d '{"text":"call back"}' 'http://localhost:18084/todos/1/note?pinned=true'
+# noted id=1 pinned=true text=call back
+curl http://localhost:18084/openapi.json
+# {"openapi":"3.0.3", ...} — see openapi.golden.json for the full doc
 ```
+
+`POST /todos/{id}/note` is the canon Plan 222.8 §1.3 **bundle** shape: ONE
+record (`AddNoteReq`, `src/main.nv`) whose FIELDS are three DIFFERENT
+extractor wrappers side by side — `PathParam[TodoIdParam]` (which todo),
+`Query[NoteQuery]` (pin it?), `Json[NoteBody]` (the note text) — decoded by
+a hand-composed `#impl(FromRequest)` that reads each field in turn and
+short-circuits on the first `Err` (see `AddNoteReq.from_request`). Until
+2026-07-27 this shape didn't compile at all (registry №139,
+`[M-user-generic-value-type-as-struct-field]`); it's registered via
+`Router.@post_typed`/`TypedRoute` alongside the plain CRUD routes above,
+with `req_shape`/`resp_shape` left `None` (see that call site's own comment
+for why — a SEPARATE, still-open compiler gap in the `Reflect` auto-derive
+for bundle fields, found while wiring this route up).
 
 ## What to poke at
 

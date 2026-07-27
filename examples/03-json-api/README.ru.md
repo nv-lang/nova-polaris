@@ -27,7 +27,24 @@ curl -X PUT -H 'Content-Type: application/json' -d '{"title":"buy milk","done":t
 # {"title":"buy milk","done":true,"id":1}
 curl -X DELETE http://localhost:18084/todos/1     # 204
 curl http://localhost:18084/todos/99              # 404, структурированное тело HttpError JSON
+curl -X POST -H 'Content-Type: application/json' -d '{"text":"call back"}' 'http://localhost:18084/todos/1/note?pinned=true'
+# noted id=1 pinned=true text=call back
+curl http://localhost:18084/openapi.json
+# {"openapi":"3.0.3", ...} — полный документ см. openapi.golden.json
 ```
+
+`POST /todos/{id}/note` — канон-форма **бандла** из плана 222.8 §1.3: ОДИН
+record (`AddNoteReq`, `src/main.nv`), поля которого — ТРИ РАЗНЫЕ
+обёртки-экстракторы рядом: `PathParam[TodoIdParam]` (какой todo),
+`Query[NoteQuery]` (закрепить сразу?), `Json[NoteBody]` (текст заметки) —
+декодируются рукописным `#impl(FromRequest)`, который читает поля по
+очереди и короткозамыкается на первом `Err` (см. `AddNoteReq.from_request`).
+До 2026-07-27 эта форма вообще не компилировалась (реестр №139,
+`[M-user-generic-value-type-as-struct-field]`); зарегистрирована через
+`Router.@post_typed`/`TypedRoute` рядом с обычными CRUD-маршрутами выше,
+`req_shape`/`resp_shape` намеренно `None` (причина — в комментарии у самого
+вызова: ОТДЕЛЬНАЯ, всё ещё открытая дыра компилятора в авто-выводе
+`Reflect` для полей бандла, найдена именно при подключении этого маршрута).
 
 ## Что покрутить
 

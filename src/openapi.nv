@@ -12,11 +12,12 @@
 // `Opaque`/anything else is skipped (not schema-worthy). `role_fields`
 // below unifies TWO shapes of `req_shape`: a multi-field BUNDLE record
 // (`Record("GetUserReq", [("id", Record("PathParam", ..)), ..])` — the
-// plan's canon form, CURRENTLY BLOCKED by a compiler bug, see extract.nv's
-// `[M-generic-fn-value-param-call-mono-collision]`/bundle-embed notes) and
-// a SINGLE extractor used directly as `T` (`Record("PathParam", ..)` at the
-// TOP level — the workaround shape this package's own tests/examples use
-// today, until that compiler gap closes).
+// plan's canon form, UNBLOCKED registry №139 (`[M-user-generic-value-type-
+// as-struct-field]`, CLOSED 2026-07-27) — see `extract_test.nv`'s
+// `GetItemBundle` for the real end-to-end exercise) and a SINGLE extractor
+// used directly as `T` (`Record("PathParam", ..)` at the TOP level — still
+// a valid shape too, e.g. a route whose only input is one `Json[T]`, not
+// a leftover workaround).
 //
 // File placement: root peer (`module polaris`, same as `server.nv`/
 // `server_router.nv`/`response.nv`/`extract.nv`) — NONE of the new types
@@ -252,7 +253,7 @@ fn build_req_parts(req_shape Option[TypeShape], hoisted_in []HoistedSchema) -> R
                         // `"value"` so the emitted parameter name is at
                         // least a valid OpenAPI identifier, not a Rust-ish
                         // wrapper name. The bundle shape's REAL field names
-                        // (once the compiler bug closes) flow through here
+                        // (now that №139 is closed) flow through here
                         // unchanged.
                         ro param_name = if role == fname { "value" } else { fname }
                         if role == "PathParam" {

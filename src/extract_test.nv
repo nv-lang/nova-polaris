@@ -281,28 +281,51 @@ test "PathParam[T]/Query[T]/Json[T]: reflect shape names the wrapper type + carr
     assert(match Text.reflect()    { Opaque(_) => true, _ => false })
 }
 
-// NOTE (compiler-bug marker candidates, NOT fixed here — outside Ф.2 scope,
-// see extract.nv's `[M-generic-fn-value-param-call-mono-collision]` comment
-// above `TypedRoute` for the full diagnosis): a generic `typed(handler_fn)`
+// NOTE (compiler-bug marker candidates): a generic `typed(handler_fn)`
 // wrapper that DECODES via `T.from_request`/calls the caller's handler
 // fn/ENCODES via `R`'s `IntoResponse` — the plan's original single-wrapper
-// design — does not codegen (calling a GENERIC fn-VALUE parameter from
-// inside a generic function cross-contaminates an unrelated same-CU
-// closure's call signature). SEPARATELY, the plan §1.3 CANON bundle shape
-// (`type GetUserReq { id PathParam[UserId], filter Query[Filter], .. }` — a
-// NEW record whose FIELDS are extractor-wrapper generic instantiations)
-// ALSO does not codegen (minimal repro, not http-specific: `type Wrap[T]
-// value { data T }` + `type Bundle value { w Wrap[int] }` CC-FAILs "unknown
-// type name 'NovaValue_Wrap____nova_int'" at `Bundle`'s own struct decl).
-// `TypedRoute`/`Router.@get_typed`/etc./`Router.introspect()` themselves
-// don't hit either gap (no generic fn-value calls, no generic-wrapper struct
-// fields) — exercised below via the WORKAROUND shape (`TypedRoute` built as
-// a direct struct literal, `T`/`R` = a single extractor wrapper directly,
-// `Json[CreateItem]`, not a multi-field bundle). Reported to integrator for
-// `docs/plans/backlog-followups.md` registration (this worktree does not
-// touch the nova repo).
+// design — still does not codegen: `[M-generic-fn-value-param-call-mono-
+// collision]` (registry backlog №140, OPEN, see extract.nv's comment above
+// `TypedRoute` for the full diagnosis) — calling a GENERIC fn-VALUE
+// parameter from inside a generic function cross-contaminates an unrelated
+// same-CU closure's call signature. `TypedRoute` stays built as a direct
+// struct literal for that reason (registration surface below).
+//
+// SEPARATELY, the plan §1.3 CANON bundle shape (`type GetUserReq { id
+// PathParam[UserId], filter Query[Filter], .. }` — a record whose FIELDS
+// are extractor-wrapper generic instantiations) is now UNBLOCKED:
+// `[M-user-generic-value-type-as-struct-field]` (registry №139) CLOSED
+// 2026-07-27 (`58ef14363`, 4 rounds — unified topo-sorted value-type
+// section in emit_c). `GetItemBundle` below IS that canon shape (`T` =
+// a multi-field bundle, not a single extractor wrapper) — the test after
+// it is the real end-to-end proof the fix was for.
 
-test "TypedRoute (direct construction) + Router.@post_typed: end-to-end decode/encode, introspect() reports shapes" {
+// Plan 222.8 §1.3 canon bundle: SEVERAL different extractor-wrapper fields
+// on ONE record (`PathParam[T]`/`Query[T]`/`Json[T]`/`Req` side by side) —
+// the exact shape №139 blocked. Field order = extraction order in
+// `from_request` below (plan §1.3: "первый Err короткозамыкает").
+#impl(Reflect)
+type GetItemBundle {
+    id      PathParam[UserIdParams],
+    filter  Query[SearchQuery],
+    payload Json[CreateItem],
+    raw     Req,
+}
+
+/// Hand-composed `FromRequest` (plan §1.3 — NOT derived, `FromRequest`
+/// belongs to polaris, not the compiler): each field's own extractor does
+/// the real decode, `?` short-circuits the first `Err` before the handler
+/// ever runs.
+#impl(FromRequest)
+fn GetItemBundle.from_request(req ServerRequest) -> Result[GetItemBundle, HttpError] {
+    ro id      = PathParam[UserIdParams].from_request(req)?
+    ro filter  = Query[SearchQuery].from_request(req)?
+    ro payload = Json[CreateItem].from_request(req)?
+    ro raw     = Req.from_request(req)?
+    Ok(GetItemBundle { id, filter, payload, raw })
+}
+
+test "GetItemBundle (canon multi-extractor bundle, №139 closed) + Router.@post_typed: end-to-end decode/encode, introspect() reports the bundle's OWN fields" {
     mut r = Router.new()
     // A plain no-extractor route on the SAME router — introspect() must
     // report it too, honestly `None`/`None` (plan §1.3: raw `Handler` ->
@@ -310,36 +333,73 @@ test "TypedRoute (direct construction) + Router.@post_typed: end-to-end decode/e
     r.get("/health", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(200, "ok"))!!
     r.post_typed("/items/{id}", TypedRoute{
         handler: fn(req ServerRequest) -> ServerResponse {
-            match Json[CreateItem].from_request(req) {
-                Ok(j)  => j.into_response()
+            match GetItemBundle.from_request(req) {
+                Ok(b) => ServerResponse.text(200, "id=${b.id.data().id} q=${b.filter.data().q} limit=${b.filter.data().limit} name=${b.payload.data().name} qty=${b.payload.data().qty} path=${b.raw.data().path()}")
                 Err(e) => e.into_response()
             }
         },
-        req_shape: Some(Json[CreateItem].reflect()),
-        resp_shape: Some(Json[CreateItem].reflect()),
+        // `GetItemBundle.reflect()` itself does not crash/hang (confirmed —
+        // this whole test PASSes) and returns a top-level
+        // `Record("GetItemBundle", [4 fields])` (checked below). BUT reading
+        // the generated C (`--keep-artifacts`) during this wave found a
+        // SEPARATE, NEW compiler defect this call exercises: the auto-derive
+        // Reflect field-walk (`auto_derive.rs`, synthesizing THIS bundle's
+        // `reflect()` body) calls the WRONG symbol for a field whose type is
+        // itself a generic instantiation (`PathParam[TodoIdParam]` etc.) —
+        // a non-monomorphized stub (`Nova_PathParam_static_reflect`, shared
+        // across ALL `PathParam[T]`, unlike the correctly-mangled
+        // `Nova_PathParam____NovaValue_UserIdParams_static_reflect` a DIRECT
+        // `PathParam[UserIdParams].reflect()` call resolves to, see the test
+        // above) that just `return NULL;` — instead of the field's real
+        // mono-instance. NOT registry №139 (struct-completeness, closed) —
+        // a different gap in the SAME auto-derive machinery, one level up
+        // (field-walk symbol resolution for a generic-instantiated field
+        // type). Consuming that `NULL` shape (openapi.nv's `role_fields`/
+        // `wrapper_role` pattern-matching on it, or plain GC touching it)
+        // crashed a real running server (`examples/03-json-api`, fiber
+        // stack overflow) during this wave — this test does NOT probe the
+        // nested field shapes for that reason (would reproduce the crash
+        // INSIDE the test run); `fields.len() == 4` below is true and safe
+        // to assert, the per-field `TypeShape` VALUES are not. Reported to
+        // integrator for `docs/plans/backlog-followups.md` registration
+        // (this worktree does not touch the nova repo).
+        req_shape: Some(GetItemBundle.reflect()),
+        resp_shape: Some(str.reflect()),
     })!!
 
-    ro wire = serve_once(r, post_json_req("/items/7?q=widgets&limit=1", "{\"name\":\"gizmo\",\"qty\":5}"))
+    // happy path: ALL FOUR bundle fields (PathParam+Query+Json+Req)
+    // extracted correctly from ONE request, in ONE handler call — this is
+    // the case №139 blocked end-to-end (registration → request → handler
+    // sees every field).
+    ro wire = serve_once(r, post_json_req("/items/7?q=widgets&limit=10", "{\"name\":\"gizmo\",\"qty\":5}"))
     ro s = unsafe { wire.to_str_unchecked() }
     assert(status_line(wire) == "HTTP/1.1 200 OK")
-    assert(s.contains("\"name\":\"gizmo\""))
-    assert(s.contains("\"qty\":5"))
+    assert(s.contains("id=7"))
+    assert(s.contains("q=widgets"))
+    assert(s.contains("limit=10"))
+    assert(s.contains("name=gizmo"))
+    assert(s.contains("qty=5"))
+    assert(s.contains("path=/items/7"))
 
-    // introspect(): the typed route carries Some/Some shapes naming `Json`
-    // (the wrapper — plan §1.3 role-by-name) for BOTH request and response;
-    // the plain route carries None/None.
+    // a bad path param short-circuits on the FIRST `?` (PathParam) — Query/
+    // Json/Req never run, proving the composition order in `from_request`.
+    ro wire_bad = serve_once(r, post_json_req("/items/not-a-number?q=x&limit=1", "{\"name\":\"n\",\"qty\":1}"))
+    assert(status_line(wire_bad) == "HTTP/1.1 400 Bad Request")
+
+    // introspect(): the bundle's OWN field names/roles surface as a
+    // Record("GetItemBundle", [4 fields]) — not a single flat wrapper name
+    // (the pre-№139 single-extractor limitation this test replaces).
     ro routes = r.introspect()
-    mut saw_typed = false
+    mut saw_bundle = false
     mut saw_plain = false
     for info in routes {
         if info.path == "/items/{id}" && info.method == "POST" {
-            saw_typed = true
+            saw_bundle = true
             assert(match info.req_shape {
-                Some(shape) => match shape { Record(name, _) => name == "Json", _ => false }
-                None => false
-            })
-            assert(match info.resp_shape {
-                Some(shape) => match shape { Record(name, _) => name == "Json", _ => false }
+                Some(shape) => match shape {
+                    Record(name, fields) => name == "GetItemBundle" && fields.len() == 4
+                    _ => false
+                }
                 None => false
             })
         }
@@ -349,6 +409,6 @@ test "TypedRoute (direct construction) + Router.@post_typed: end-to-end decode/e
             assert(info.resp_shape.is_none())
         }
     }
-    assert(saw_typed)
+    assert(saw_bundle)
     assert(saw_plain)
 }
