@@ -338,6 +338,31 @@ test "GetItemBundle (canon multi-extractor bundle, №139 closed) + Router.@post
                 Err(e) => e.into_response()
             }
         },
+        // `GetItemBundle.reflect()` itself does not crash/hang (confirmed —
+        // this whole test PASSes) and returns a top-level
+        // `Record("GetItemBundle", [4 fields])` (checked below). BUT reading
+        // the generated C (`--keep-artifacts`) during this wave found a
+        // SEPARATE, NEW compiler defect this call exercises: the auto-derive
+        // Reflect field-walk (`auto_derive.rs`, synthesizing THIS bundle's
+        // `reflect()` body) calls the WRONG symbol for a field whose type is
+        // itself a generic instantiation (`PathParam[TodoIdParam]` etc.) —
+        // a non-monomorphized stub (`Nova_PathParam_static_reflect`, shared
+        // across ALL `PathParam[T]`, unlike the correctly-mangled
+        // `Nova_PathParam____NovaValue_UserIdParams_static_reflect` a DIRECT
+        // `PathParam[UserIdParams].reflect()` call resolves to, see the test
+        // above) that just `return NULL;` — instead of the field's real
+        // mono-instance. NOT registry №139 (struct-completeness, closed) —
+        // a different gap in the SAME auto-derive machinery, one level up
+        // (field-walk symbol resolution for a generic-instantiated field
+        // type). Consuming that `NULL` shape (openapi.nv's `role_fields`/
+        // `wrapper_role` pattern-matching on it, or plain GC touching it)
+        // crashed a real running server (`examples/03-json-api`, fiber
+        // stack overflow) during this wave — this test does NOT probe the
+        // nested field shapes for that reason (would reproduce the crash
+        // INSIDE the test run); `fields.len() == 4` below is true and safe
+        // to assert, the per-field `TypeShape` VALUES are not. Reported to
+        // integrator for `docs/plans/backlog-followups.md` registration
+        // (this worktree does not touch the nova repo).
         req_shape: Some(GetItemBundle.reflect()),
         resp_shape: Some(str.reflect()),
     })!!
