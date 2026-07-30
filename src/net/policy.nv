@@ -54,8 +54,11 @@ type ReadAttempt enum
 
 fn read_attempt(mut s TcpStream, deadline Monotonic) Net Time -> ReadAttempt {
     ro (tx, rx) = Channel.new(1)
-    mut timed_out = false
-    with Fail[TimeoutError] = |_e| { timed_out = true } {
+    // D441: Fail-обработчик исполняется в файбере падающей операции —
+    // голый `mut`-флаг здесь был бы гонкой (E_HANDLER_MUT_CAPTURE_IN_FIBER),
+    // AtomicBool из белого списка синхронизированных типов.
+    mut timed_out = AtomicBool.new(false)
+    with Fail[TimeoutError] = |_e| { timed_out.store(true) } {
         supervised(deadline: deadline) {
             spawn consume shs = s.share() { // не `ws`: модуль http.ws затеняет локаль — [M-module-name-shadows-local] (221.1 №49)
                 match shs.read_to_vec(65536) {
@@ -65,7 +68,7 @@ fn read_attempt(mut s TcpStream, deadline Monotonic) Net Time -> ReadAttempt {
             }
         }
     }
-    if timed_out {
+    if timed_out.load() {
         ReadAttempt.TimedOut
     } else {
         match rx.try_recv() {
