@@ -33,18 +33,16 @@ curl http://localhost:18084/openapi.json
 # {"openapi":"3.0.3", ...} — полный документ см. openapi.golden.json
 ```
 
-`POST /todos/{id}/note` — канон-форма **бандла** из плана 222.8 §1.3: ОДИН
-record (`AddNoteReq`, `src/main.nv`), поля которого — ТРИ РАЗНЫЕ
-обёртки-экстракторы рядом: `PathParam[TodoIdParam]` (какой todo),
-`Query[NoteQuery]` (закрепить сразу?), `Json[NoteBody]` (текст заметки) —
-декодируются рукописным `#impl(FromRequest)`, который читает поля по
-очереди и короткозамыкается на первом `Err` (см. `AddNoteReq.from_request`).
-До 2026-07-27 эта форма вообще не компилировалась (реестр №139,
-`[M-user-generic-value-type-as-struct-field]`); зарегистрирована через
-`Router.@post_typed`/`TypedRoute` рядом с обычными CRUD-маршрутами выше,
-`req_shape`/`resp_shape` намеренно `None` (причина — в комментарии у самого
-вызова: ОТДЕЛЬНАЯ, всё ещё открытая дыра компилятора в авто-выводе
-`Reflect` для полей бандла, найдена именно при подключении этого маршрута).
+`POST /todos/{id}/note` — форма **bare-сахара** из плана 222.3 (№140 закрыт
+2026-07-31): ОДИН record (`AddNoteReq`, `src/main.nv`), поля которого — три
+ГОЛЫХ типа, каждый со СВОИМ источником — `TodoIdParam`=path,
+`NoteQuery`=query, `NoteBody`=body — склеенных рукописным
+`#impl(FromRequest)`, который читает поля по очереди и короткозамыкается на
+первом `Err` (см. `AddNoteReq.from_request`). Регистрация — через
+`Router.@post_typed_h` (generic-хендлер `fn(T) -> ServerResponse` + один
+type-param `T FromRequest`): адаптер извлечения и запись `T.reflect()` в
+шэйпы маршрута делает сам сахар — ни рукописного адаптер-замыкания, ни
+hand-built `req_shape`.
 
 ## Что покрутить
 

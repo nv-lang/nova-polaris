@@ -7,7 +7,7 @@
 
 module main
 
-import polaris.{Router, ServerRequest, ServerResponse, Json, PathParam, Query, FromRequest, FromPath, FromQuery, FromBody, TypedRoute, get, post, put, delete}
+import polaris.{Router, ServerRequest, ServerResponse, Json, PathParam, Query, FromRequest, FromPath, FromQuery, FromBody, get, post, put, delete}
 import polaris.net.{ServerPolicy}
 import polaris.serve.{serve_router}
 import polaris.{StatusCode, HttpError}
@@ -35,11 +35,12 @@ type TodoUpdate value { ro title str, ro done bool }
 // polaris/extract.nv), хендлер получает ГОЛЫЕ типы без обёрток/`.data()`.
 // Каждый `#impl` здесь тонко форвардит на уже проверенный generic-путь
 // (`PathParam[T]`/`Query[T]`/`Json[T]`'s `from_request`, extract.nv) —
-// сам форвард НЕ generic-диспетч на fn-параметре, поэтому не задевает
-// открытый №140 (см. `FromPath`'s doc-banner в extract.nv: №140 блокирует
-// GENERIC-регистрацию (`post_typed`, принимающий голый `h`), НЕ голые типы
-// параметров как таковые — оттого регистрация ниже остаётся низкоуровневой
-// `TypedRoute`, но сам ХЕНДЛЕР уже пишется с голыми типами).
+// сам форвард НЕ generic-диспетч на fn-параметре. Три голых типа-параметра
+// собраны ниже в ОДИН бандл `AddNoteReq` (`#impl(FromRequest)`, первый
+// `?`-Err короткозамыкает), а регистрация — на BARE-SUGAR
+// `Router.@post_typed_h` (№140 ЗАКРЫТ 2026-07-31, см. extract.nv's doc):
+// извлечение и шэйпы делает сам сахар, ручного адаптер-замыкания и
+// hand-built `req_shape` больше нет.
 #impl(Serialize + Deserialize + Reflect)
 type TodoIdParam value { ro id int }
 
@@ -73,15 +74,45 @@ fn NoteBody.from_body(req ServerRequest) -> Result[NoteBody, HttpError] {
     }
 }
 
-/// Голый typed-хендлер (Ф.2/Ф.3, паритет-форма): три голых типа-параметра,
-/// источник читается по значению-типу (`TodoIdParam`=path, `NoteQuery`=query,
-/// `NoteBody`=body). `items`/`find_by_id` — захваченное состояние примера
-/// (не языковое ограничение) — передаётся явно, а не через closure-захват,
-/// т.к. `add_note` не вложена в `build_router` (нужна отдельным top-level
-/// именем для читаемости регистрации ниже).
-fn add_note(id TodoIdParam, opts NoteQuery, note NoteBody, items Vec[Todo]) -> ServerResponse {
-    match find_by_id(items, id.id) {
-        Some(t) => ServerResponse.text(200, "noted id=${t.id} pinned=${opts.pinned} text=${note.text}")
+// The three bare source types above compose into ONE bundle for the
+// bare-sugar registration (`Router.@post_typed_h`, single `T FromRequest`):
+// each field declares its OWN source via its own type (`TodoIdParam`=path,
+// `NoteQuery`=query, `NoteBody`=body), the bundle's `from_request` just
+// splices them in order — same hand-composed shape as `extract_test.nv`'s
+// `GetItemBundle`. `#impl(Reflect)` below is MANUAL, NOT derived — the
+// auto-derive field-walk through generic-wrapper field types is the known
+// `[M-reflect-derive-generic-wrapper-field-null-shape]` gap (P1,
+// `docs/plans/backlog-followups.md`) that forced the OLD hand-built
+// `req_shape`; the manual impl produces the SAME role-tagged shape
+// (`PathParam`/`Query`/`Json` names — the convention `polaris.openapi`'s
+// emitter reads, plan §1.3 item 6) with zero compiler-bug exposure.
+type AddNoteReq value { ro id TodoIdParam, ro opts NoteQuery, ro note NoteBody }
+
+#impl(FromRequest)
+fn AddNoteReq.from_request(req ServerRequest) -> Result[AddNoteReq, HttpError] {
+    Ok(AddNoteReq{
+        id: TodoIdParam.from_path(req)?,
+        opts: NoteQuery.from_query(req)?,
+        note: NoteBody.from_body(req)?,
+    })
+}
+
+#impl(Reflect)
+fn AddNoteReq.reflect() -> TypeShape => TypeShape.Record("AddNoteReq", [
+    ("id",   TypeShape.Record("PathParam", [("data", TodoIdParam.reflect())])),
+    ("opts", TypeShape.Record("Query",     [("data", NoteQuery.reflect())])),
+    ("note", TypeShape.Record("Json",      [("data", NoteBody.reflect())])),
+])
+
+/// Голый typed-хендлер (Ф.2/Ф.3, паритет-форма): ОДИН бандл-параметр
+/// `AddNoteReq` (три поля — path/query/body, каждый со СВОИМ источником,
+/// объявленным на типе ПОЛЯ). `items` — захваченное состояние примера (не
+/// языковое ограничение) — передаётся явно, а не через closure-захват, т.к.
+/// `add_note` не вложена в `build_router` (нужна отдельным top-level именем
+/// для читаемости регистрации ниже).
+fn add_note(req AddNoteReq, items Vec[Todo]) -> ServerResponse {
+    match find_by_id(items, req.id.id) {
+        Some(t) => ServerResponse.text(200, "noted id=${t.id} pinned=${req.opts.pinned} text=${req.note.text}")
         None    => not_found()
     }
 }
@@ -175,62 +206,27 @@ fn build_router() -> Router {
                 }
             }))!!
 
-    // `POST /todos/{id}/note` — a UNIQUE path, registered via
-    // `@post_typed`/`TypedRoute` (Plan 222.3 «РЕШЕНИЕ 2026-07-31»,
-    // паритет-форма). `add_note` above takes THREE BARE types
-    // (`TodoIdParam`/`NoteQuery`/`NoteBody`, each declaring its OWN source
-    // via `#impl(FromPath)`/`#impl(FromQuery)`/`#impl(FromBody)` — no
-    // `PathParam[T]`/`Query[T]`/`Json[T]` wrapper, no `.data()` unwrapping).
-    // Registration itself STAYS low-level (`TypedRoute{handler: fn(req)->..}`)
-    // — the compiler gap that blocks a GENERIC `post_typed[T1,T2,T3](path, h)`
-    // overload calling its own bare-fn parameter `h` (№140, reconfirmed open
-    // this wave — see `FromPath`'s doc-banner in `polaris/extract.nv`) is
-    // NOT this route's problem to route around; the adapter closure below is
-    // a hand-written, ordinary, NON-generic closure (safe — each `.from_path`/
-    // `.from_query`/`.from_body` call is a concrete, non-generic dispatch).
-    //
-    // `req_shape`: hand-built `TypeShape.Record` with each field tagged by
-    // its EXTRACTION ROLE ("PathParam"/"Query"/"Json" — the SAME role-tag
-    // convention `polaris.openapi`'s emitter already reads off a bundle
-    // record's wrapper-typed fields, plan §1.3 item 6), but calling
-    // `.reflect()` DIRECTLY on each bare CONCRETE type (`TodoIdParam`/
-    // `NoteQuery`/`NoteBody`) — NOT through a generic wrapper VALUE's
-    // field-walk, so this does NOT exercise the known
-    // `[M-reflect-derive-generic-wrapper-field-null-shape]` gap (P1,
-    // `docs/plans/backlog-followups.md`) that blocked this before: that bug
-    // is in auto-derived `#impl(Reflect)` field-walking a GENERIC wrapper
-    // TYPE's own fields, not in calling a concrete type's own `.reflect()`
-    // directly, which bare types have always done safely.
-    ro note_req_shape = TypeShape.Record("AddNoteReq", [
-        ("id",   TypeShape.Record("PathParam", [("data", TodoIdParam.reflect())])),
-        ("opts", TypeShape.Record("Query",     [("data", NoteQuery.reflect())])),
-        ("note", TypeShape.Record("Json",      [("data", NoteBody.reflect())])),
-    ])
-    app.post_typed("/todos/{id}/note", TypedRoute{
-        handler: fn(req ServerRequest) -> ServerResponse {
-            match TodoIdParam.from_path(req) {
-                Ok(id) => match NoteQuery.from_query(req) {
-                    Ok(opts) => match NoteBody.from_body(req) {
-                        Ok(note) => add_note(id, opts, note, items)
-                        Err(e)   => e.into_response()
-                    }
-                    Err(e) => e.into_response()
-                }
-                Err(e) => e.into_response()
-            }
-        },
-        req_shape: Some(note_req_shape),
-        resp_shape: None,
-    })!!
+    // `POST /todos/{id}/note` — a UNIQUE path, registered via the BARE-SUGAR
+    // `Router.@post_typed_h` (Plan 222.3 «РЕШЕНИЕ 2026-07-31», паритет-форма;
+    // №140 ЗАКРЫТ 2026-07-31 — generic-функция, зовущая свой fn-параметр,
+    // компилируется, см. `FromPath`'s doc-banner в `polaris/extract.nv`).
+    // `add_note` принимает ОДИН голый бандл `AddNoteReq` (три поля, каждое
+    // со СВОИМ источником через `#impl(FromPath)`/`#impl(FromQuery)`/
+    // `#impl(FromBody)`); извлечение (`T.from_request`) и шэйпы
+    // (`T.reflect()`, см. `AddNoteReq`'s own doc) делает САМ сахар —
+    // ручного адаптер-замыкания и hand-built `req_shape` больше нет.
+    // Хендлер-замыкание ниже лишь протаскивает захваченное состояние
+    // примера `items` в top-level `add_note` (не языковое ограничение).
+    app.post_typed_h[AddNoteReq]("/todos/{id}/note", fn(req AddNoteReq) -> ServerResponse => add_note(req, items))!!
 
     // Plan 222.8 Ф.3 — `/openapi.json`, EXPLICIT registration ("одна
     // дверь", no magic in `serve_router`). Introspected AFTER every other
     // route is registered (so it sees all of them) but the handler itself
     // is built/cached ONCE here, before `serve` — zero per-request cost.
-    // Every route on this page carries `None`/`None` shapes today (see
-    // `/todos/{id}/note`'s own comment above for why) — the emitted doc
-    // documents paths + methods without rich per-field schemas; still real
-    // end-to-end wiring against a real, running Router.
+    // The CRUD routes carry `None`/`None` shapes (raw `Handler`s — "schema
+    // unknown", not guessed, plan §1.3); the note route above contributes
+    // `AddNoteReq`'s role-tagged bundle, so its three params surface in the
+    // emitted doc.
     ro routes = app.introspect()
     app.get("/openapi.json", openapi_handler(routes, "03-json-api Todo list", "1.0.0"))!!
     app

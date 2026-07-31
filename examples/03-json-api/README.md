@@ -33,18 +33,16 @@ curl http://localhost:18084/openapi.json
 # {"openapi":"3.0.3", ...} — see openapi.golden.json for the full doc
 ```
 
-`POST /todos/{id}/note` is the canon Plan 222.8 §1.3 **bundle** shape: ONE
-record (`AddNoteReq`, `src/main.nv`) whose FIELDS are three DIFFERENT
-extractor wrappers side by side — `PathParam[TodoIdParam]` (which todo),
-`Query[NoteQuery]` (pin it?), `Json[NoteBody]` (the note text) — decoded by
-a hand-composed `#impl(FromRequest)` that reads each field in turn and
-short-circuits on the first `Err` (see `AddNoteReq.from_request`). Until
-2026-07-27 this shape didn't compile at all (registry №139,
-`[M-user-generic-value-type-as-struct-field]`); it's registered via
-`Router.@post_typed`/`TypedRoute` alongside the plain CRUD routes above,
-with `req_shape`/`resp_shape` left `None` (see that call site's own comment
-for why — a SEPARATE, still-open compiler gap in the `Reflect` auto-derive
-for bundle fields, found while wiring this route up).
+`POST /todos/{id}/note` is the Plan 222.3 **bare-sugar** form (№140 closed
+2026-07-31): one record (`AddNoteReq`, `src/main.nv`) whose FIELDS are three
+bare types, each declaring its OWN extraction source — `TodoIdParam`=path,
+`NoteQuery`=query, `NoteBody`=body — spliced by a hand-composed
+`#impl(FromRequest)` that reads each field in turn and short-circuits on the
+first `Err` (see `AddNoteReq.from_request`). Registration goes through
+`Router.@post_typed_h` (a generic `fn(T) -> ServerResponse` handler + one
+`T FromRequest` type-param), which composes the extraction adapter itself and
+records `T.reflect()` as the route's request shape — no hand-written adapter
+closure, no hand-built `req_shape`.
 
 ## What to poke at
 
