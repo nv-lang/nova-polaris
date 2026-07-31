@@ -114,15 +114,15 @@ export fn BackgroundTasks @task_count() -> int => @tasks.len()
 export fn BackgroundTasks mut @drain() Log {
     for t in @tasks {
         ro task = t
-        mut failed = false
-        mut reason = ""
         with Supervisor = effect Supervisor {
             on_child_fail(idx int, err any) -> Decision {
-                failed = true
+                // №173: сериализация D416§2 опровергнута — mut-захваты тут
+                // гонка; логируем ПРЯМО здесь (момент падения, файбер ребёнка),
+                // наружу ничего не передаём.
                 if Some(s) = err.try_as[str]() {
-                    reason = s
+                    Log.error("background task failed: ${s}")
                 } else {
-                    reason = "non-string task error"
+                    Log.error("background task failed: non-string task error")
                 }
                 return Decision.Stop
             }
@@ -132,9 +132,6 @@ export fn BackgroundTasks mut @drain() Log {
                     task()
                 }
             }
-        }
-        if failed {
-            Log.error("background task failed: ${reason}")
         }
     }
 }

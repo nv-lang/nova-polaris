@@ -124,31 +124,20 @@ type ConnStep enum
 // `InternalError500` -> writes a 500 (in THIS, the un-panicked caller fiber —
 // the spawn already exited), `Close` -> writes nothing.
 fn run_request(mut s TcpStream, handler fn([]u8) -> ServerResponse, raw []u8, policy ServerPolicy, keep_alive bool) Net Time -> ConnStep {
-    // `failed`/`reason` captured by `on_child_fail` below — legal (checked:
-    // `nova check src --strict-effects` is clean, no E_CONCURRENT_MUT_CAPTURE
-    // for either), and NOT a coincidence of the type being `bool`/`str`: the
-    // M:N mut-capture race-checker only fires for `spawn`/`parallel for`/
-    // `detach` BODIES (its own error text says so verbatim); `on_child_fail`
-    // is a `Supervisor` EFFECT-HANDLER closure, not one of those three — per
-    // D416 §2 (spec/decisions/06-concurrency.md, normative): "on_child_fail
-    // исполняется на drive-потоке scope'а (drain-цикл
-    // nova_supervised_run_impl), по одному падению за раз" — it runs
-    // SERIALLY on the SAME drive thread/fiber that owns the `supervised{}`
-    // scope, never migrates, never runs concurrently with anything —
-    // structurally outside the race-checker's scope, same reason
-    // `BackgroundTasks.@drain()` (server/background.nv, ALREADY shipped)
-    // captures the identical `mut failed`/`mut reason` shape with no
-    // workaround needed.
-    mut failed = false
-    mut reason = ""
+    // №173: былое обоснование «legal per D416§2 serialization» ОПРОВЕРГНУТО
+    // перезамером (5/10 падений пин-фикстуры) — carve-out отозван, флаг и
+    // текст идут через синхронизированные типы (белый список D441).
+    mut failed = AtomicBool.new(false)
     mut step ConnStep = ConnStep.StepCloseErr
     with Supervisor = effect Supervisor {
         on_child_fail(idx int, err any) -> Decision {
-            failed = true
+            // №173: лог в момент падения, в файбере ребёнка; наружу — только
+            // атомарный флаг для panic_response-ветки.
+            failed.store(true)
             if Some(msg) = err.try_as[str]() {
-                reason = msg
+                Log.error("handler panic: ${msg}")
             } else {
-                reason = "non-string handler error"
+                Log.error("handler panic: non-string handler error")
             }
             return Decision.Stop
         }
@@ -190,8 +179,7 @@ fn run_request(mut s TcpStream, handler fn([]u8) -> ServerResponse, raw []u8, po
             }
         }
     }
-    if failed {
-        Log.error("handler panic: ${reason}")
+    if failed.load() {
         match policy.panic_response() {
             // `InternalError500`: the panic was cleanly caught BEFORE any
             // response bytes went out (the whole handler call + write
