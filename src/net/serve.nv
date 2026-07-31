@@ -53,10 +53,59 @@
 module polaris.net
 
 import std.net.{TcpListener, TcpStream, NetError}
-import std.runtime.sync.{Semaphore}
+import std.runtime.sync.{Semaphore, AtomicInt}
 import std.time.duration
 import polaris.{ServerResponse, serialize_response, Log}
 import polaris.{serialize_response_head, encode_chunk, encode_chunk_end}
+
+// ── Anti-flood aggregation for the admission-reject log line (222.22 Ф.1
+//    decision: "первый отказ сразу, дальше не чаще раза в 5s сводкой K за
+//    N сек" — a connection-flood must not become a log-flood). `count`/
+//    `window_start_ms` are `AtomicInt` cells (`#share`, same recipe
+//    `middleware/log.nv`'s `AccessLog.counter` uses) — `RejectLog` is a
+//    `value` record so every copy (one per `detach`-ed connection, same
+//    shape as `inflight`/`policy` below) aliases the SAME two cells. ─────────
+
+const REJECT_LOG_WINDOW_MS int = 5000
+
+type RejectLog value {
+    priv count           AtomicInt
+    priv window_start_ms AtomicInt
+}
+
+fn RejectLog.new() -> RejectLog => { count: AtomicInt.new(0), window_start_ms: AtomicInt.new(0) }
+
+// Record one admission-reject. The FIRST reject (ever, or the first after a
+// window flush) logs immediately; later rejects inside the same
+// `REJECT_LOG_WINDOW_MS` window only increment the counter. Once the window
+// has elapsed, the NEXT reject to observe that (a single-winner
+// `compare_exchange` on `window_start_ms` — best-effort, not exact: under
+// contention two rejects landing at the same instant could each see the
+// stale window and only one wins the CAS, same ±1 tolerance
+// `middleware/ratelimit.nv`'s own token bucket documents for its unlocked
+// table) flushes a summary line and starts a fresh window.
+fn RejectLog @record() Time {
+    mut count = @count
+    mut window_start = @window_start_ms
+    ro now_ns = Monotonic.now().nanos() as int
+    ro n = count.fetch_add(1) + 1
+    if n == 1 {
+        window_start.store(now_ns)
+        Log.error("rejected connection: max_inflight admission limit reached")
+    } else {
+        ro started_ns = window_start.load()
+        ro elapsed_ms = (now_ns - started_ns) / 1_000_000
+        if elapsed_ms >= REJECT_LOG_WINDOW_MS {
+            match window_start.compare_exchange(started_ns, now_ns) {
+                Ok(_) => {
+                    ro flushed = count.swap(0)
+                    Log.error("rejected ${flushed} in last ${elapsed_ms}ms")
+                }
+                Err(_) => ()
+            }
+        }
+    }
+}
 
 // ── ws-hijack + recover-500: run one request's handler UNDER Stop-
 //    supervision, INSIDE the write (Plan 222 final-plumbing tasks 1+2,
@@ -339,9 +388,39 @@ export fn serve_connection(consume stream TcpStream, handler fn([]u8) -> ServerR
 // still gets spawned before it rejects — negligible cost for a bool check
 // + immediate close, not the "unbounded nested work" class of concern
 // `[M-187-high-concurrency-connection-wedge]` was actually about.
+// Graceful shutdown (222.22 Ф.1 остаток, task 2) — ATTEMPTED, BLOCKED by a
+// compiler defect, reverted. `TcpListener.accept()`'s own doc-comment
+// (`std/net/tcp.nv`) calls it "parks; cancel-safe", so the intended shape
+// was `supervised(cancel: stop) { while running { match listener.accept()
+// { ... Err(e) => match e { NetError.Cancelled => running = false, _ => ...
+// } } } }` plus a bounded post-loop drain polling
+// `inflight.available_permits()` against a `graceful_drain` deadline.
+// REPRO (minimal, confirmed twice independently): the MOMENT a
+// `CancelToken` value is reachable in ANY form in a function whose body
+// also has a `detach consume stream { match inflight.try_acquire() { ... }
+// }` (this fn, unchanged shape, proven working before this task) — as a
+// NEW `ServerPolicy` field captured into that same `detach`, OR as a bare
+// extra fn PARAMETER of `serve()` only referenced by an outer
+// `supervised(cancel: stop)` wrapping the loop (never itself passed into
+// the `detach` body) — C-codegen breaks with `error: use of undeclared
+// identifier '_nova_detach_0_box_inflight'` (an UNRELATED capture in the
+// SAME `detach`, `inflight`, loses its generated boxing symbol). Reproduces
+// under the plain default test lane (no `--full` needed): every file that
+// transitively reaches the affected `serve()` (`doc_samples_test.nv`,
+// `net/config.nv`'s own linkable unit) fails the SAME way. Tried and ruled
+// out: moving `stop` out of `ServerPolicy` into a separate parameter
+// (still breaks); the underlying primitive `supervised(cancel: tok)` itself
+// is fine in isolation (`std/concurrency/cancellation.nv`'s own `race2`,
+// long-proven) — the defect is specific to `CancelToken` reachability
+// inside a function that ALSO contains this particular multi-capture
+// `detach` shape. Root-causing further is compiler/codegen work, out of
+// this package's own remit; reported for the integrator. `stop`/
+// `graceful_drain` are NOT added anywhere in this package as of this
+// commit — `serve()` has no shutdown knob, same as before this task.
 #stable(since = "0.1")
 export fn serve(consume listener TcpListener, handler fn([]u8) -> ServerResponse, policy ServerPolicy) Net Time Detach {
     mut inflight = Semaphore.new(policy.max_inflight())
+    mut reject_log = RejectLog.new()
     mut running = true
     while running {
         match listener.accept() {
@@ -356,6 +435,7 @@ export fn serve(consume listener TcpListener, handler fn([]u8) -> ServerResponse
                             ro _ = serve_connection(stream, handler, policy)
                         }
                         None => {
+                            reject_log.record()
                             if policy.reject_with_503() {
                                 ro _ = stream.write_all("HTTP/1.1 503 Service Unavailable\r\nRetry-After: 1\r\nConnection: close\r\nContent-Length: 0\r\n\r\n")
                             }
