@@ -148,6 +148,63 @@ export fn Headers @data() -> HeaderMap => @data
 // `FromRequest`/`Reflect` impls (protocol impls, no embedding-completeness
 // requirement) live below/further down, same as any other extractor.
 
+// ── FromPath / FromQuery / FromBody — bare-type extraction (Plan 222.3,
+// «РЕШЕНИЕ 2026-07-31») ─────────────────────────────────────────────────────
+//
+// Axum-BETTER-than-parity form: a handler parameter's OWN Nova type declares
+// its extraction source ONCE (`#impl(FromPath)` / `#impl(FromQuery)` /
+// `#impl(FromBody)`), so the handler signature carries ZERO wrapper ceremony
+// — `fn add_note(id TodoIdParam, opts NoteQuery, note NoteBody) -> ServerResponse`
+// instead of `fn add_note(id PathParam[TodoIdParam], opts Query[NoteQuery],
+// body Json[NoteBody]) -> ServerResponse` + `.data()` unwrapping at every use.
+// The `PathParam[T]`/`Query[T]`/`Json[T]` wrapper family (above) remains the
+// legal EXPLICIT form (backward compatible, and the escape hatch for a type
+// that legitimately needs >1 source in different routes — pick the wrapper
+// there instead of `#impl`ing more than one of these on the same type: a
+// type implementing TWO of `FromPath`/`FromQuery`/`FromBody` has no single
+// honest default source, so callers writing bare-type sugar over such a type
+// must go through the explicit wrapper instead).
+//
+// №140 status (2026-07-31, this wave): the compiler gap that originally
+// blocked a SINGLE generic `typed(handler_fn)` wrapper — a generic function
+// calling its OWN fn-typed parameter, whose call result is then dispatched
+// on a still-generic typevar (`match h(v) { Ok(r) => r.into_response() }` /
+// the direct-chain `h(v).into_response()` form) — is STILL OPEN, reconfirmed
+// live this wave with fresh minimal repros (`nova-p2223/scratch_repro/
+// p140_repro3.nv`, `p140_repro6.nv`; not committed, compiler-side finding,
+// reported to the integrator). `.from_path`/`.from_query`/`.from_body` below
+// are safe: each is a CONCRETE (non-generic) `#impl` on a named type, no
+// typevar-bound dispatch involved. What's still blocked is the OTHER half
+// of the Ф.2 target — a `post_typed`/`get_typed` arity overload that itself
+// is GENERIC over the handler's parameter types and calls the handler
+// fn-parameter, then dispatches `.into_response()` on the (still generic-
+// typed) result — the exact §140/§5-`[M-concrete-instance-arity-overload-
+// mangle]` shape already documented above this file's §5 banner.
+// Registration therefore stays on the existing low-level `Router.@get_typed`/
+// `@post_typed(path, TypedRoute{handler: fn(req ServerRequest) -> ...})`
+// path (see `examples/03-json-api`'s `/todos/{id}/note` route for the
+// resulting shape: a hand-written, NON-generic adapter closure that calls
+// each bare type's `.from_path`/`.from_query`/`.from_body` directly, then
+// the caller's own bare-typed handler fn) — bare TYPES at the parameter
+// level (this section's actual deliverable), not yet bare arity-sugared
+// REGISTRATION (still blocked on №140's open half).
+#stable(since = "0.1")
+export type FromPath protocol {
+    .from_path(req ServerRequest) -> Result[Self, HttpError]
+}
+
+/// Extract `Self` from the `?a=1&b=2` query string.
+#stable(since = "0.1")
+export type FromQuery protocol {
+    .from_query(req ServerRequest) -> Result[Self, HttpError]
+}
+
+/// Extract `Self` by decoding the request body as JSON.
+#stable(since = "0.1")
+export type FromBody protocol {
+    .from_body(req ServerRequest) -> Result[Self, HttpError]
+}
+
 // ── flat key/value Deserializer engine (shared by Params/QueryDeserializer —
 // both are the SAME "flat string pairs + one scalar cursor" shape, only how
 // `pairs` gets built differs: raw `[](str,str)` for path params vs percent-
