@@ -89,7 +89,7 @@ fn overview_main() Net Time Detach -> () {
         ServerResponse.text(StatusCode.OK, "hello, ${name}")
     })!!
 
-    consume listener = TcpListener.bind(SocketAddr.from_str("0.0.0.0:8080")!!)!!
+    consume listener = TcpListener.bind("0.0.0.0:8080".to_socket_addr()!!)!!
     serve_router(listener, app, ServerPolicy.new())
 }
 

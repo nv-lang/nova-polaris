@@ -101,7 +101,7 @@ fn build_router() Time Random -> Router {
 fn main() Net Time Detach -> () {
     with Random = seeded(42) {
         ro app = build_router()
-        consume listener = TcpListener.bind(SocketAddr.from_str("0.0.0.0:18086")!!)!!
+        consume listener = TcpListener.bind("0.0.0.0:18086".to_socket_addr()!!)!!
         // `SessionStore` is an explicit resource (222.20 волна B: no ambient
         // default, unlike `Log`) — installed here, wrapping the whole accept
         // loop so every request's `session_layer` raw-op reaches the same

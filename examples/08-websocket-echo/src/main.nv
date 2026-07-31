@@ -60,6 +60,6 @@ fn build_router() -> Router =>
 /// upgrades any more.
 fn main() Net Time Detach -> () {
     ro app = build_router()
-    consume listener = TcpListener.bind(SocketAddr.from_str("0.0.0.0:18089")!!)!!
+    consume listener = TcpListener.bind("0.0.0.0:18089".to_socket_addr()!!)!!
     serve_router(listener, app, ServerPolicy.new())
 }

@@ -42,7 +42,7 @@ nova build --strict-effects src/main.nv
 ```nova
 fn main() Net Time Detach -> () {
     ro app = build_router()
-    consume listener = TcpListener.bind(SocketAddr.from_str("0.0.0.0:PORT")!!)!!
+    consume listener = TcpListener.bind("0.0.0.0:PORT".to_socket_addr()!!)!!
     serve_router(listener, app, ServerPolicy.new())
 }
 ```

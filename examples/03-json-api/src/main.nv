@@ -181,9 +181,16 @@ fn build_router() -> Router {
     app.post_typed("/todos/{id}/note", TypedRoute{
         handler: fn(req ServerRequest) -> ServerResponse {
             match AddNoteReq.from_request(req) {
-                Ok(r) => match find_by_id(items, r.id.data().id) {
-                    Some(t) => ServerResponse.text(200, "noted id=${t.id} pinned=${r.opts.data().pinned} text=${r.body.data().text}")
-                    None    => not_found()
+                Ok(r) => {
+                    // Распаковка обёрток ОДИН раз на входе — дальше хендлер
+                    // работает с голыми значениями, без .data()-ступеней.
+                    ro id   = r.id.data()
+                    ro opts = r.opts.data()
+                    ro note = r.body.data()
+                    match find_by_id(items, id.id) {
+                        Some(t) => ServerResponse.text(200, "noted id=${t.id} pinned=${opts.pinned} text=${note.text}")
+                        None    => not_found()
+                    }
                 }
                 Err(e) => e.into_response()
             }
@@ -210,6 +217,6 @@ fn build_router() -> Router {
 /// its own fiber, so a blocking `serve_router` call works directly.
 fn main() Net Time Detach -> () {
     ro app = build_router()
-    consume listener = TcpListener.bind(SocketAddr.from_str("0.0.0.0:18084")!!)!!
+    consume listener = TcpListener.bind("0.0.0.0:18084".to_socket_addr()!!)!!
     serve_router(listener, app, ServerPolicy.new())
 }

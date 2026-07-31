@@ -24,6 +24,6 @@ fn build_router() -> Router =>
 /// runs as its own fiber, so a blocking `serve_router` call works directly.
 fn main() Net Time Detach -> () {
     ro app = build_router()
-    consume listener = TcpListener.bind(SocketAddr.from_str("0.0.0.0:18082")!!)!!
+    consume listener = TcpListener.bind("0.0.0.0:18082".to_socket_addr()!!)!!
     serve_router(listener, app, ServerPolicy.new())
 }
