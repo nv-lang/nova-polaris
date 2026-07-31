@@ -4,7 +4,7 @@
 // chunk-by-chunk `write_all` path actually round-trips over `Net` (the pure/
 // mock wire-format coverage lives in server/streaming_test.nv — this smoke is
 // the socket-level proof that the same bytes actually arrive over a real
-// connection, mirroring servernet/rt/handle_connection_smoke.nv).
+// connection, mirroring src/rt/handle_connection_smoke.nv).
 //
 // EXPECT_TIMEOUT_MS-marked (standalone per test-conventions.md — never folds
 // into the shared http.servernet folder-CU).

@@ -16,7 +16,7 @@
 // (reproduced on the unmodified `nova-http` checkout too): the current
 // `nova-http` package is out of sync with the current main-repo compiler
 // (`E_STR_CONCAT_PLUS` in `server/mux_test.nv`, `E_CONSUME_KEYWORD_MISSING`
-// in `servernet/rt/handle_connection_smoke.nv` — both pre-date this branch).
+// in `src/rt/handle_connection_smoke.nv` — both pre-date this branch).
 // A second, narrower, ALSO-confirmed defect
 // (`[M-nv-duration-record-field-debug-bytes-missing]`, isolated minimal
 // repro in the task report) additionally blocks any full build touching a

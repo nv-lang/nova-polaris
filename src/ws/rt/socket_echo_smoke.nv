@@ -3,7 +3,7 @@
 // socket (Plan 222.14 Ф.3: "фибро-модель" check). Proves the `http.ws`
 // СЛОЙ-1 stack end-to-end over a REAL `TcpStream`, fiber-per-connection
 // (Plan 173/83.x substrate, same `supervised { spawn {...}; spawn {...} }`
-// shape as `servernet/rt/handle_connection_smoke.nv`):
+// shape as `src/rt/handle_connection_smoke.nv`):
 //   · handshake bytes (`ws_accept_key`) on the wire, both directions;
 //   · `WebSocket.recv`/`.send`/`.close` driving a real echo loop server-side;
 //   · masked (client-role) frames in, unmasked (server-role) frames out;
