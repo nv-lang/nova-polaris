@@ -357,7 +357,7 @@ export fn serve(consume listener TcpListener, handler fn([]u8) -> ServerResponse
                         }
                         None => {
                             if policy.reject_with_503() {
-                                ro _ = stream.write_all("HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n")
+                                ro _ = stream.write_all("HTTP/1.1 503 Service Unavailable\r\nRetry-After: 1\r\nConnection: close\r\nContent-Length: 0\r\n\r\n")
                             }
                         }
                     }

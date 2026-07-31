@@ -251,5 +251,6 @@ test "serve_router(): over max_inflight -> 503, first connection still served" {
         ro got = b_got_rx.try_recv() ?? []u8.new()
         ro s = unsafe { got.to_str_unchecked() }
         assert(s.contains("503"))
+        assert(s.contains("Retry-After: 1"))
     }
 }
