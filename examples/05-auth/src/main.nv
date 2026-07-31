@@ -31,9 +31,10 @@ fn demo_now() -> u64 => 4_000_000_000
 type AuthClaims value { ro sub str }
 
 fn mint_token(sub str) -> str {
-    mut fields HashMap[str, JsonValue] = HashMap[str, JsonValue].new()
-    fields.insert("sub", JsonValue.str(sub))
-    fields.insert("exp", JsonValue.num(5_000_000_000.0))
+    // Map literal + sum-coercion: "..." -> Str, 5e9 -> Num (spec: record
+    // literal as map). `JsonValue.object(...)` stays until `JsonObject`
+    // exposes the map-literal protocol (queued std-API polish).
+    ro fields HashMap[str, JsonValue] = { sub, exp: 5_000_000_000.0 }
     Jwt.encode_hs256(jwt_secret(), JsonValue.object(fields))
 }
 
