@@ -1,0 +1,209 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// nova-http: ws/rt/socket_echo_load_smoke.nv — WS load smoke (Plan 222.14
+// §6 Ф.3): N=8 PARALLEL client/server pairs (own `TcpListener`/port each),
+// spawn-cycled through the M:N runtime — same handshake+echo primitives
+// `socket_echo_smoke.nv` proves for ONE pair, under genuine fiber
+// concurrency. Each pair: real handshake -> 3 masked Text echoes -> a clean
+// client-initiated close echoed back.
+//
+// Shape (full rationale trimmed — kept short so `EXPECT_TIMEOUT_MS` stays
+// inside the test-runner's own first-30-lines scan window, same discipline
+// `rt/serve_policy_smoke.nv`'s own banner documents): ONE `run_echo_pair`
+// fiber per index, `spawn`ed in a `for` loop inside ONE outer `supervised`
+// (parallel-fiber-loop shape, `background.nv`'s banner). Each pair binds its
+// OWN listener and nests its OWN `supervised { spawn{server}; spawn{client} }`
+// (nested `supervised{spawn{..}}` inside a `spawn`'s fiber — probed-safe
+// shape, `net/serve.nv`'s `run_request` banner). Per-pair result crosses out
+// via its own 1-slot channel pair, collected into a `Some(N)`-capacity
+// channel read back AFTER the outer `supervised` joins (no polling). Frame
+// helpers/fixture key are module-private copies of `socket_echo_smoke.nv`'s
+// own (СЛОЙ discipline: `http.ws` never imports UP, same reasoning as that
+// file's own banner for why they aren't shared imports).
+//
+// EXPECT_TIMEOUT_MS 30000
+
+module rt.socket_echo_load_smoke
+
+import std.net.{TcpListener, TcpStream, SocketAddr, real_net}
+import polaris.ws.{Frame, OpCode, Message, WebSocket, ws_accept_key, frame_len_hint}
+
+// How many parallel client/server pairs this smoke drives (brief 222.14 §6
+// Ф.3: "N=8").
+fn pair_count() -> int => 8
+
+// RFC 6455 §1.3 worked-example key/accept pair — see `socket_echo_smoke.nv`'s
+// own copy for why this exact fixture value.
+fn test_client_key() -> str => "dGhlIHNhbXBsZSBub25jZQ=="
+
+// Index of CRLFCRLF in `b`, or -1 — module-private copy, see this file's own
+// banner for why (mirrors `socket_echo_smoke.nv` verbatim).
+fn find_crlfcrlf(b []u8) -> int {
+    ro n = b.len()
+    mut i = 0
+    while i + 3 < n {
+        if (b[i] as int) == 0x0D && (b[i + 1] as int) == 0x0A &&
+           (b[i + 2] as int) == 0x0D && (b[i + 3] as int) == 0x0A {
+            return i
+        }
+        i += 1
+    }
+    -1
+}
+
+// Accumulate bytes off `s` until exactly one complete WS frame is buffered,
+// then decode it — module-private copy, see `socket_echo_smoke.nv`'s own
+// (identical) helper for the full rationale (mutable-borrow shape, not
+// consume-and-return-a-tuple, `[M-ws-consume-tcpstream-return-tuple-breaks]`).
+fn read_frame_inline(mut s TcpStream) Net -> Frame {
+    mut fbuf []u8 = []u8.new()
+    mut need = frame_len_hint(fbuf)
+    while need.is_some() {
+        match s.read_to_vec(4096) {
+            Ok(chunk) => {
+                if chunk.len() == 0 { need = None }
+                else { fbuf.append(chunk); need = frame_len_hint(fbuf) }
+            }
+            Err(_) => { need = None }
+        }
+    }
+    match Frame.decode(fbuf) {
+        Ok((f, _n)) => f
+        Err(_)      => Frame.new(true, OpCode.Close, []u8.new())
+    }
+}
+
+// One full pair: bind its own loopback listener, run server+client fibers
+// concurrently (nested `supervised`, see this file's own banner), report
+// the pair's combined pass/fail into `done_tx`. Never panics on a bind/
+// accept/connect failure — reports `false` instead, so one bad pair can't
+// take the whole smoke down with a bare `!!`-panic on some other fiber's
+// unrelated port.
+fn run_echo_pair(done_tx ChanWriter[bool]) Net -> () {
+    match TcpListener.bind(SocketAddr.loopback(0)) {
+        Ok(consume lst0) => {
+            consume lst = lst0
+            ro port = lst.local_port()
+            ro (srv_tx, srv_rx) = Channel.new(1)
+            ro (cli_tx, cli_rx) = Channel.new(1)
+            supervised {
+                // ── server fiber: accept, handshake, echo 3 messages, close ──
+                spawn {
+                    match lst.accept() {
+                        Ok(consume srv) => {
+                            consume s = srv
+                            mut acc []u8 = []u8.new()
+                            mut header_end = -1
+                            mut reading = true
+                            while reading && header_end < 0 {
+                                match s.read_to_vec(4096) {
+                                    Ok(chunk) => {
+                                        if chunk.len() == 0 { reading = false }
+                                        else { acc.append(chunk); header_end = find_crlfcrlf(acc) }
+                                    }
+                                    Err(_) => { reading = false }
+                                }
+                            }
+                            ro accept_key = match ws_accept_key(test_client_key()) {
+                                Ok(k)  => k
+                                Err(_) => ""
+                            }
+                            ro resp_head = "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept_key}\r\n\r\n"
+                            match s.write_all(resp_head.bytes()) {
+                                Ok(_) => {
+                                    mut ws = WebSocket.with_limit(s, 65536)
+                                    mut running = true
+                                    mut echoed = 0
+                                    while running {
+                                        match ws.recv() {
+                                            Ok(Some(Message.Text(t))) => { ro _ = ws.send(Message.Text(t)); echoed += 1 }
+                                            Ok(Some(Message.Binary(b))) => { ro _ = ws.send(Message.Binary(b)) }
+                                            Ok(Some(_))                 => ()      // Ping/Pong — auto-handled inside recv()
+                                            Ok(None)                    => { running = false }
+                                            Err(_)                      => { running = false }
+                                        }
+                                    }
+                                    ro _ = ws.close(1000, "bye")
+                                    srv_tx.try_send(echoed == 3)
+                                }
+                                Err(_) => { srv_tx.try_send(false) }
+                            }
+                        }
+                        Err(_) => { srv_tx.try_send(false) }
+                    }
+                }
+                // ── client fiber: raw WS wire protocol (simulates a browser) ──
+                spawn {
+                    match TcpStream.connect(SocketAddr.loopback(port)) {
+                        Ok(consume conn) => {
+                            consume c0 = conn
+                            ro req = "GET /ws HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: ${test_client_key()}\r\nSec-WebSocket-Version: 13\r\n\r\n"
+                            ro _ = c0.write_all(req.bytes())
+
+                            mut acc []u8 = []u8.new()
+                            mut header_end = -1
+                            mut reading = true
+                            while reading && header_end < 0 {
+                                match c0.read_to_vec(4096) {
+                                    Ok(chunk) => {
+                                        if chunk.len() == 0 { reading = false }
+                                        else { acc.append(chunk); header_end = find_crlfcrlf(acc) }
+                                    }
+                                    Err(_) => { reading = false }
+                                }
+                            }
+                            ro head_bytes []u8 = acc[0..header_end]
+                            ro head_str = unsafe { head_bytes.to_str_unchecked() }
+                            mut all_ok = head_str.contains("101 Switching Protocols")
+
+                            // 3 masked Text echoes (`c0` reused directly for every write/
+                            // read — same mutable-borrow discipline `socket_echo_smoke.nv`'s
+                            // own client fiber documents, `[M-ws-consume-tcpstream-return-tuple-breaks]`).
+                            mut i = 0
+                            while i < 3 {
+                                ro msg = "load-msg-${i}"
+                                ro f = Frame.new(true, OpCode.Text, msg.bytes())
+                                ro _w = c0.write_all(f.encode(true))
+                                ro echo = read_frame_inline(c0)
+                                all_ok = all_ok && echo.payload() == msg.bytes()
+                                i += 1
+                            }
+
+                            // clean client-initiated close -> expect the close echoed back
+                            ro fc = Frame.new(true, OpCode.Close, Vec[u8].of(0x03, 0xE8)) // code 1000
+                            ro _wc = c0.write_all(fc.encode(true))
+                            ro echoc = read_frame_inline(c0)
+                            all_ok = all_ok && match echoc.opcode() { OpCode.Close => true, _ => false }
+
+                            c0.close()
+                            cli_tx.try_send(all_ok)
+                        }
+                        Err(_) => { cli_tx.try_send(false) }
+                    }
+                }
+            }
+            lst.close()
+            srv_tx.close()
+            cli_tx.close()
+            done_tx.try_send((srv_rx.try_recv() ?? false) && (cli_rx.try_recv() ?? false))
+        }
+        Err(_) => { done_tx.try_send(false) }
+    }
+}
+
+test "ws: N=8 parallel echo pairs (spawn-cycle) — each upgrade + 3 msgs + clean close, over loopback" {
+    with Net = real_net() {
+        ro n = pair_count()
+        ro (done_tx, done_rx) = Channel.new(n)
+        supervised {
+            for _ in 0..n {
+                spawn { run_echo_pair(done_tx) }
+            }
+        }
+        done_tx.close()
+        mut got = 0
+        while got < n {
+            assert(done_rx.try_recv() ?? false)
+            got += 1
+        }
+    }
+}
