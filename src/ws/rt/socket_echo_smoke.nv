@@ -12,15 +12,18 @@
 //   · the close handshake (client-initiated) echoed back.
 //
 // Deliberately does NOT go through `Router`/`servernet.handle_connection` —
-// `WebSocketUpgrade`'s `@on_upgrade` cannot yet hand the live raw socket to a
-// handler (no channel from a `FromRequest` extractor, which only sees the
-// buffered `ServerRequest` value, to the connection's actual `TcpStream` —
-// that requires extending `ServerResponse`/`servernet.handle_connection`,
-// OUT OF ZONE this wave, `servernet/**` untouched, tracked for whoever wires
-// 222.7). This smoke drives the handshake + `WebSocket` object directly
-// against a self-managed accept/connect pair instead — proving the
-// SOCKET/PROTOCOL layer is real and correct so that future servernet wiring
-// is "plumbing", not "does the protocol work". `[M-ws-on_upgrade-hijack-not-wired]`
+// NOT because hijack is unwired (it is: `[M-ws-on_upgrade-hijack-not-wired]`
+// is CLOSED, see `ws_upgrade.nv`'s own banner — `WebSocketUpgrade.
+// @on_upgrade` hands the live `TcpStream` to a handler via `ServerResponse`'s
+// `upgrade` hook field, and `net/serve.nv`'s `run_request` drives it end-to-
+// end through the real connection driver, proven by `rt/
+// ws_upgrade_hijack_smoke.nv`). This smoke stays a DELIBERATE, separate
+// lower-level proof: it drives the handshake + `WebSocket` object directly
+// against a self-managed accept/connect pair, independent of `Router`/
+// `servernet`, so the SOCKET/PROTOCOL layer (frame codec, masking,
+// fragmentation, Ping/Pong, close handshake) is verified on its own —
+// `rt/ws_upgrade_hijack_smoke.nv` then only has to prove the WIRING, not
+// re-prove the protocol codec (see that file's own banner).
 //
 // EXPECT_TIMEOUT_MS-marked (standalone per test-conventions.md — binds a
 // real loopback port, same discipline as the servernet smoke).

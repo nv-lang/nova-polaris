@@ -600,6 +600,55 @@ export fn Router mut @post_typed(path str, t TypedRoute) -> Result[Router, HttpE
     Ok(@)
 }
 
+/// BARE-sugar form of `@post_typed` (Plan 222.3, №140 CLOSED 2026-07-31 —
+/// the generic-fn-value-param call gap that blocked this exact shape is
+/// fixed upstream, fixture-model `m140_bare_sugar_post_typed_model`): the
+/// caller passes a BARE handler `h fn(T) -> ServerResponse` + ONE type-param
+/// `T FromRequest` instead of hand-building a `TypedRoute{handler,
+/// req_shape, resp_shape}` literal. This method composes the adapter itself
+/// — `T.from_request(req)` on the way in, first `Err` short-circuits to
+/// `e.into_response()` — and records `Some(T.reflect())` as the request
+/// shape for `Router.introspect()`/the Ф.3 OpenAPI emitter (`T` must
+/// `Reflect` — the brief's `[T FromRequest]` is shorthand; the shape side of
+/// the sugar has to read `T.reflect()` somewhere, same `FromRequest+Reflect`
+/// pair the plan's original single-wrapper design used). Return-type DOMAIN
+/// follows the sibling `@post_typed`/`@get_typed` family — `Result[Router,
+/// HttpError]`, `Ok(@)` (owner decision №84), NOT the plan sketch's
+/// `Result[(), RouterError]`: this package's registration error type is
+/// `HttpError` package-wide, and `Ok(@)` keeps fluent
+/// `r.post_typed_h[..](..)!!` chains consistent with every other
+/// `Router`-mut registrar. A SEPARATE method NAME from `@post_typed` (NOT an
+/// overload — `[M-concrete-instance-arity-overload-mangle]`, see
+/// `@get_typed`'s own doc). The adapter body below is the exact №140 shape
+/// that now compiles: a generic fn calling its OWN fn-VALUE param `h(v)`;
+/// `T.from_request(req)`/`T.reflect()` are BY-TYPE protocol dispatches (the
+/// safe path this file's banner already documents), not stored generic fn
+/// values.
+#stable(since = "0.1")
+export fn Router mut @post_typed_h[T FromRequest + Reflect](path str, h fn(T) -> ServerResponse) -> Result[Router, HttpError] {
+    @post(path, fn(req ServerRequest) -> ServerResponse {
+        match T.from_request(req) {
+            Ok(v)  => h(v)
+            Err(e) => e.into_response()
+        }
+    })?
+    // `T.reflect()` hoisted to its own local BEFORE the `RouteInfo{...}`
+    // literal — inlining it straight into `req_shape: Some(T.reflect())`
+    // (tried first) mono-mangles to an undefined symbol at LINK time
+    // (`lld-link: undefined symbol: Nova_RouteInfo_static_reflect` —
+    // codegen apparently confuses the generic `T` with the adjacent struct
+    // literal's OWN type name, `RouteInfo`, when `.reflect()` is called
+    // syntactically inside that literal). `[M-generic-reflect-call-inside-sibling-struct-literal]`
+    // — reported to integrator for `docs/plans/backlog-followups.md`
+    // registration (this worktree does not touch the nova repo); hoisting
+    // the call out is a zero-cost, zero-risk workaround (a plain local var,
+    // same "not a stored generic fn value" safe path this file's banner
+    // already documents for every OTHER `T.reflect()`/`T.from_request()` call).
+    ro shape = T.reflect()
+    @shapes.push(RouteInfo{path, method: "POST", req_shape: Some(shape), resp_shape: None})
+    Ok(@)
+}
+
 /// Register a typed `PUT` handler at `path` (see `@get_typed`).
 #stable(since = "0.1")
 export fn Router mut @put_typed(path str, t TypedRoute) -> Result[Router, HttpError] {
