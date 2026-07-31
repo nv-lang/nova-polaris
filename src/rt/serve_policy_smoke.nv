@@ -25,7 +25,7 @@
 module rt.serve_policy_smoke
 
 import std.net.{TcpListener, TcpStream, SocketAddr, real_net}
-import polaris.{Router, ServerRequest, ServerResponse}
+import polaris.{Router, ServerRequest, ServerResponse, capture_log, Log}
 import polaris.net.{ServerPolicy}
 import polaris.serve.{serve_router}
 
@@ -251,5 +251,70 @@ test "serve_router(): over max_inflight -> 503, first connection still served" {
         ro got = b_got_rx.try_recv() ?? []u8.new()
         ro s = unsafe { got.to_str_unchecked() }
         assert(s.contains("503"))
+        assert(s.contains("Retry-After: 1"))
+    }
+}
+
+// ── 6. admission-reject anti-flood: first reject logs immediately via the
+//    ambient `Log` effect (222.22 Ф.1, task 5) ────────────────────────────
+//
+// NB: no graceful-shutdown knob exists on `serve()` as of this commit (task
+// 2 attempted, blocked by a compiler defect — see `serve()`'s own
+// doc-comment, `../../net/serve.nv`, for the repro) — this test bounds its
+// own inherently-infinite `serve_router()` call the SAME way every other
+// test in this file does: an outer `supervised(timeout:)` + `with
+// Fail[TimeoutError] = |_e| {}` around the whole scope.
+
+test "serve_router(): first admission reject logs immediately via Log" {
+    with Net = real_net() {
+        ro (port_tx, port_rx) = Channel.new(2)
+        mut lines []str = []
+        ro policy = ServerPolicy.new().max_inflight(1)
+        with Log = capture_log(lines) {
+            with Fail[TimeoutError] = |_e| {} {
+                supervised(timeout: 3.to_seconds()) {
+                    spawn {
+                        consume lst = match TcpListener.bind(SocketAddr.loopback(0)) {
+                            Ok(consume l)  => l
+                            Err(_) => { ro _ = port_tx.try_send(0 as u16); ro _ = port_tx.try_send(0 as u16); return }
+                        }
+                        ro _ = port_tx.try_send(lst.local_port())
+                        ro _ = port_tx.try_send(lst.local_port())
+                        serve_router(lst, echo_routes(), policy)
+                    }
+                    // Holder: takes the ONLY admission slot and keeps it open
+                    // long enough for the second connection to be rejected.
+                    spawn {
+                        ro port = match port_rx.recv() { Some(p) => p, None => 0 as u16 }
+                        match TcpStream.connect(SocketAddr.loopback(port)) {
+                            Ok(consume conn) => {
+                                consume cli = conn
+                                (400).to_millis().sleep()
+                                cli.close()
+                            }
+                            Err(_) => ()
+                        }
+                    }
+                    // Rejected connection.
+                    spawn {
+                        ro port2 = match port_rx.recv() { Some(p) => p, None => 0 as u16 }
+                        (100).to_millis().sleep()   // let the holder's admission land first
+                        match TcpStream.connect(SocketAddr.loopback(port2)) {
+                            Ok(consume conn) => {
+                                consume cli = conn
+                                ro _ = cli.read_to_vec(4096)
+                                cli.close()
+                            }
+                            Err(_) => ()
+                        }
+                    }
+                }
+            }
+        }
+        mut found = false
+        for line in lines {
+            if line.contains("rejected connection: max_inflight") { found = true }
+        }
+        assert(found)
     }
 }

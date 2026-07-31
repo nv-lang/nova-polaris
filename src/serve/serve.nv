@@ -47,3 +47,18 @@ export fn handle_connection_router(consume stream TcpStream, router Router) Net 
 export fn serve_router(consume listener TcpListener, router Router, policy ServerPolicy) Net Time Detach {
     serve(listener, router_callback_with_limits(router, policy.multipart_limits()), policy)
 }
+
+/// `serve_router`, but taking the listen address as a string instead of an
+/// already-bound `TcpListener` — parses `addr` (`str.to_socket_addr()`,
+/// `std.net`), binds it, then hands off to `serve_router`. `":8080"` binds
+/// all interfaces (both IPv4 and IPv6 wildcard forms are supported by the
+/// underlying parse — see `to_socket_addr`'s own doc-comment). A malformed
+/// address or a bind failure (e.g. the port already in use) is returned as
+/// an `Err` value, never a panic.
+#stable(since = "0.1")
+export fn serve_addr(addr str, router Router, policy ServerPolicy) Net Time Detach -> Result[(), NetError] {
+    ro sock = addr.to_socket_addr()?
+    consume listener = TcpListener.bind(sock)?
+    serve_router(listener, router, policy)
+    Ok(())
+}

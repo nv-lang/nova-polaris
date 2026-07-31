@@ -1,0 +1,140 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// nova-http: metrics.nv (Plan 222.23 Ф.1) — in-memory metrics registry +
+// a `/metrics` Prometheus-text export route. Third observability channel
+// alongside `Log` (log.nv). Histograms are deferred (V1 starts small:
+// counters + gauges only).
+//
+// NOT an effect (deviation from the original plan): an ambient `Metrics
+// effect` with a stateful `#default_handler`/`with Metrics = handler(reg)
+// { ... }` installation was attempted and DROPPED — every shape tried (a
+// factory fn returning `Effect[Metrics]` whose body is an `effect Metrics
+// { op(...) { <captured MetricsRegistry>.method(...) } }` block, capturing
+// a value-record with `Mutex`+`HashMap` fields) fails C-codegen with
+// "assigning to NovaValue_MetricsRegistry from incompatible type
+// NovaValue_MetricsRegistry *; dereference with *" plus a follow-on
+// "indirection requires pointer operand" — reproduces with the BARE
+// registry (no `detach`/`spawn`/`serve()` involved at all: a lone
+// `effect Metrics { counter(...) { reg.record_counter(...) } }` closure is
+// enough) and independent of whether the counters table uses `AtomicInt`
+// cells or plain `int`-under-`Mutex`. `MetricsRegistry` itself (the struct
+// + its own methods, called directly, no effect/closure involved) compiles
+// and runs cleanly — this file ships THAT: a plain value type a caller
+// builds once and calls directly (`reg.record_counter(...)`), threaded
+// through wherever it is needed by hand, same as any other value. Wiring
+// `serve()`'s own `accepted_total`/`rejected_total` counters through this
+// registry is deferred for the same reason (it depended on the effect
+// mechanism to keep `serve()`'s signature honest about what it measures).
+//
+// Cardinality caveat (the same trap `Log`'s own anti-flood discipline
+// closes for connection floods): metric NAMES must stay a small, bounded
+// set chosen by the developer (`accepted_total`, `rejected_total`, ...) —
+// NEVER a per-client/per-request key baked into the name. A per-client name
+// would make the registry grow without bound under exactly the kind of
+// traffic a metrics endpoint exists to diagnose. That per-client dimension
+// belongs to the rate limiter / an audit log, not this registry.
+//
+// Registry sharing: `MetricsRegistry` is a `value` record over reference-
+// semantics fields (`Mutex`/`HashMap`, same shape `BackgroundTasks.tasks`
+// documents) — every copy aliases the SAME table, so one instance built in
+// `main` and passed around by value reaches every caller that records into
+// it.
+
+module polaris
+
+import std.runtime.sync.{Mutex}
+import std.collections.hashmap.{HashMap}
+
+/// In-memory metrics table: name-keyed counters (`int`) and gauges
+/// (last-write-wins `f64`), both fully guarded by ONE `Mutex` for every
+/// read/write (simpler than a per-cell atomic — the table itself is small
+/// and bounded, see the cardinality caveat in the file banner, so lock
+/// contention is not a concern). Value type over reference-semantics
+/// fields — every copy of a `MetricsRegistry` aliases the SAME table.
+#stable(since = "0.1")
+export type MetricsRegistry value {
+    priv lock     Mutex
+    priv counters HashMap[str, int]
+    priv gauges   HashMap[str, f64]
+}
+
+/// Empty registry — no counters/gauges recorded yet.
+#stable(since = "0.1")
+export fn MetricsRegistry.new() -> MetricsRegistry => {
+    lock: Mutex.new(),
+    counters: HashMap[str, int].new(),
+    gauges: HashMap[str, f64].new(),
+}
+
+/// Current value of counter `name` (0 if never recorded).
+#stable(since = "0.1")
+export fn MetricsRegistry @counter_value(name str) -> int {
+    mut lock = @lock
+    consume g = lock.lock()
+    mut counters = @counters
+    ro v = counters.get(name) ?? 0
+    g.unlock()
+    v
+}
+
+/// Current value of gauge `name` (0.0 if never recorded).
+#stable(since = "0.1")
+export fn MetricsRegistry @gauge_value(name str) -> f64 {
+    mut lock = @lock
+    consume g = lock.lock()
+    mut gauges = @gauges
+    ro v = gauges.get(name) ?? 0.0
+    g.unlock()
+    v
+}
+
+/// Add `delta` to counter `name` (created at 0 on first use).
+#stable(since = "0.1")
+export fn MetricsRegistry @record_counter(name str, delta int) {
+    mut lock = @lock
+    consume g = lock.lock()
+    mut counters = @counters
+    ro prev = counters.get(name) ?? 0
+    counters.insert(name, prev + delta)
+    g.unlock()
+}
+
+/// Overwrite gauge `name` (last-write-wins).
+#stable(since = "0.1")
+export fn MetricsRegistry @record_gauge(name str, v f64) {
+    mut lock = @lock
+    consume g = lock.lock()
+    mut gauges = @gauges
+    gauges.insert(name, v)
+    g.unlock()
+}
+
+/// Render every recorded counter/gauge as Prometheus text-exposition-format
+/// lines (a `# TYPE` line plus `name value`, per metric). No `# HELP` lines
+/// — V1 attaches no static per-metric description.
+#stable(since = "0.1")
+export fn MetricsRegistry @render_prometheus() -> str {
+    mut lock = @lock
+    consume g = lock.lock()
+    mut counters = @counters
+    mut gauges = @gauges
+    consume sb = StringBuilder.new()
+    for (name, n) in counters.iter() {
+        sb.append("# TYPE ${name} counter\n${name} ${n}\n")
+    }
+    for (name, v) in gauges.iter() {
+        sb.append("# TYPE ${name} gauge\n${name} ${v}\n")
+    }
+    g.unlock()
+    sb.into_str()
+}
+
+/// Register `GET /metrics` on `r`, rendering `reg` as Prometheus text.
+#stable(since = "0.1")
+export fn metrics_routes(mut r Router, reg MetricsRegistry) -> Result[Router, HttpError] {
+    r.get("/metrics", metrics_export_handler(reg))
+}
+
+fn metrics_export_handler(reg MetricsRegistry) -> Handler {
+    ro registry = reg
+    fn(_req ServerRequest) -> ServerResponse => ServerResponse.text(200, registry.render_prometheus())
+}
