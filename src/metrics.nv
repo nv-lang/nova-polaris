@@ -25,6 +25,22 @@
 // registry is deferred for the same reason (it depended on the effect
 // mechanism to keep `serve()`'s signature honest about what it measures).
 //
+// RE-CONFIRMED 2026-08-01 (222.22/.23 A-V9 window): retried under the SAME
+// exact shape as this file's own `metrics_handler` (a factory fn returning
+// `Effect[Metrics]`, closing over a captured `MetricsRegistry`, `counter`/
+// `gauge` ops delegating to `@record_counter`/`@record_gauge`). `nova check
+// src --strict-effects` passes clean (type-checks and generates C without
+// invoking the C compiler) — but the FULL `nova test src --strict-effects`
+// mega-CU (which DOES invoke the C compiler) reproduces the EXACT error
+// above, byte-for-byte, across every file in the compile unit — 74 `CC-FAIL`
+// entries, e.g. `src/auth.c:40629:63: error: assigning to
+// 'NovaValue_MetricsRegistry' ... from incompatible type
+// 'NovaValue_MetricsRegistry *'; dereference with *`. `nova check` alone is
+// NOT sufficient evidence a shape like this compiles — only a full `nova
+// test`/`nova build` (real `cc` invocation) is. Reported for the
+// integrator; this file stays on the plain direct-call `MetricsRegistry`
+// API only, unchanged.
+//
 // Cardinality caveat (the same trap `Log`'s own anti-flood discipline
 // closes for connection floods): metric NAMES must stay a small, bounded
 // set chosen by the developer (`accepted_total`, `rejected_total`, ...) —

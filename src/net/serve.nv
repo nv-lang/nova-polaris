@@ -388,35 +388,118 @@ export fn serve_connection(consume stream TcpStream, handler fn([]u8) -> ServerR
 // still gets spawned before it rejects — negligible cost for a bool check
 // + immediate close, not the "unbounded nested work" class of concern
 // `[M-187-high-concurrency-connection-wedge]` was actually about.
-// Graceful shutdown (222.22 Ф.1 остаток, task 2) — ATTEMPTED, BLOCKED by a
-// compiler defect, reverted. `TcpListener.accept()`'s own doc-comment
+// Graceful shutdown (222.22 финал, A-V9 window, 2026-08-01) — ATTEMPTED
+// AGAIN, BLOCKED AGAIN, by THREE further compiler defects (all distinct
+// from each other and from the ORIGINAL one below, which IS confirmed
+// fixed — see end of this note). `TcpListener.accept()`'s own doc-comment
 // (`std/net/tcp.nv`) calls it "parks; cancel-safe", so the intended shape
-// was `supervised(cancel: stop) { while running { match listener.accept()
+// was `stop CancelToken` (a required 4th param — an `Option[...] = None`
+// default was tried FIRST and independently blocked, see defect 2 below),
+// `supervised(cancel: stop) { while running { match listener.accept()
 // { ... Err(e) => match e { NetError.Cancelled => running = false, _ => ...
-// } } } }` plus a bounded post-loop drain polling
-// `inflight.available_permits()` against a `graceful_drain` deadline.
-// REPRO (minimal, confirmed twice independently): the MOMENT a
-// `CancelToken` value is reachable in ANY form in a function whose body
-// also has a `detach consume stream { match inflight.try_acquire() { ... }
-// }` (this fn, unchanged shape, proven working before this task) — as a
-// NEW `ServerPolicy` field captured into that same `detach`, OR as a bare
-// extra fn PARAMETER of `serve()` only referenced by an outer
-// `supervised(cancel: stop)` wrapping the loop (never itself passed into
-// the `detach` body) — C-codegen breaks with `error: use of undeclared
-// identifier '_nova_detach_0_box_inflight'` (an UNRELATED capture in the
-// SAME `detach`, `inflight`, loses its generated boxing symbol). Reproduces
-// under the plain default test lane (no `--full` needed): every file that
-// transitively reaches the affected `serve()` (`doc_samples_test.nv`,
-// `net/config.nv`'s own linkable unit) fails the SAME way. Tried and ruled
-// out: moving `stop` out of `ServerPolicy` into a separate parameter
-// (still breaks); the underlying primitive `supervised(cancel: tok)` itself
-// is fine in isolation (`std/concurrency/cancellation.nv`'s own `race2`,
-// long-proven) — the defect is specific to `CancelToken` reachability
-// inside a function that ALSO contains this particular multi-capture
-// `detach` shape. Root-causing further is compiler/codegen work, out of
-// this package's own remit; reported for the integrator. `stop`/
-// `graceful_drain` are NOT added anywhere in this package as of this
-// commit — `serve()` has no shutdown knob, same as before this task.
+// } } } }` plus a bounded post-loop drain polling `inflight.
+// available_permits()` against a `graceful_drain` deadline (`ServerPolicy`,
+// `config.nv` — NOT added back, since the feature it was for stayed
+// blocked). Three defects hit, each with a minimal std-only repro (no
+// `ServerPolicy`/sockets/`Router` needed for any of them):
+//
+// 1. A `mut` local captured into a `detach { }` body placed inside a
+//    `while` loop, read again AFTER that loop ends, in the SAME function —
+//    fails C-codegen with `error: use of undeclared identifier
+//    '_nova_detach_0_box_<name>'`:
+//    ```
+//    fn probe() Detach {
+//        mut inflight = Semaphore.new(4)
+//        mut running = true
+//        while running {
+//            detach { ro _ = inflight.try_acquire() }
+//            running = false
+//        }
+//        ro avail = inflight.available_permits()   // <- breaks codegen
+//        println("avail=${avail}")
+//    }
+//    ```
+//    WORKAROUND FOUND: move the `while { detach { ... } }` loop into its
+//    OWN function, taking the captured variable as a plain `mut` PARAMETER
+//    (a `Semaphore` is an opaque reference-counted handle, so the same
+//    object is mutated either side of the call) — the post-loop read then
+//    lives in a DIFFERENT function body than the `detach`, and compiles
+//    clean. Reported for the integrator regardless — the workaround should
+//    not be necessary.
+//
+// 2. A function taking a multi-field `value`-record parameter (passed by
+//    pointer at the C ABI level, e.g. `ServerPolicy`) FOLLOWED by a
+//    parameter with a DEFAULT VALUE, called from ANOTHER function that
+//    passes the value-record through, fails C-codegen with `error:
+//    indirection requires pointer operand ('NovaValue_<Type>' invalid)` AT
+//    THE CALL SITE — regardless of whether the caller passes the optional
+//    arg explicitly or omits it (so this is not about default-injection
+//    specifically; it is about a default being DECLARED on the callee's
+//    parameter at all):
+//    ```
+//    type Foo value { a int, b int, c int }
+//    fn Foo.new() -> Foo => { a: 1, b: 2, c: 3 }
+//    fn callee(f Foo, stop Option[int] = None) -> int {
+//        match stop { Some(v) => f.a + v, None => f.a }
+//    }
+//    fn caller(f Foo) -> int { callee(f) }             // <- breaks codegen
+//    fn main() Detach -> () { println("${caller(Foo.new())}") }
+//    ```
+//    The exact same shape with NO default (`stop Option[int]` required, no
+//    `= None`) compiles clean. WORKAROUND: make the parameter required, not
+//    defaulted (forces every call site to pass it explicitly — no
+//    `serve_router`/`serve_addr` sugar-layer signature stayed 3-arg by
+//    synthesizing a fresh, nobody-holds-it `CancelToken.new()` internally).
+//
+// 3. Even with (1) and (2) worked around, the resulting `stop CancelToken`
+//    was FUNCTIONALLY inert: `supervised(cancel: tok) { ... listener.
+//    accept() ... }` with `accept()` called DIRECTLY in the supervised
+//    block's own body (no inner `spawn`) NEVER actually gets interrupted by
+//    `tok.cancel(...)` — confirmed empirically (a 15s test timeout elapsed
+//    with the accept loop still parked). Wrapping the SAME `accept()` call
+//    in an inner `spawn { ... }` (child of the `supervised(cancel:)` scope)
+//    DOES get interrupted promptly — matches the established pattern this
+//    package's OWN `policy.nv` (`read_attempt`) and `std/concurrency/
+//    cancellation.nv` (`race2`) already use (every proven-working
+//    cancellable op in this codebase runs inside a `spawn`, never directly
+//    in the supervised block's own top-level body). But: moving `listener`
+//    (this fn's own `consume TcpListener` PARAMETER) into that inner
+//    `spawn consume listener { ... }` hits a FOURTH defect —
+//    `error: use of undeclared identifier '_defer_N_0_active'` (comment in
+//    the generated C: "Plan 217: consume-param call-arg — cleanup
+//    дизармлен"):
+//    ```
+//    fn accept_loop(consume listener TcpListener, cancel_tok CancelToken) Net Time Detach {
+//        supervised(cancel: cancel_tok) {
+//            spawn consume listener {              // <- breaks codegen
+//                match listener.accept() { ... }
+//            }
+//        }
+//    }
+//    ```
+//    A `TcpListener` bound FRESH INSIDE the spawn (not received as an
+//    already-consumed parameter — `consume lst = TcpListener.bind(...)`
+//    written directly in the spawn body) does NOT hit this — but `serve()`'s
+//    whole established API takes an ALREADY-bound listener as a parameter
+//    (every caller — `serve_router`, every example/test — reads
+//    `local_port()` before serving), so this workaround is not available
+//    without a bigger, riskier API redesign out of this task's scope.
+//    Compounded with defect 1 (the post-loop drain read also needs
+//    `inflight` to survive past whatever function holds the `detach`), no
+//    combination tried lands a REAL, interrupt-capable accept loop. All
+//    three reported for the integrator; none fixed in this package.
+//
+// The ORIGINAL blocker (a `CancelToken` reachable ANYWHERE in a fn whose
+// body ALSO has this `detach consume stream { match inflight.try_acquire()
+// { ... } }` multi-capture shape, `error: use of undeclared identifier
+// '_nova_detach_0_box_inflight'` — same error text as defect 1 above, but a
+// DIFFERENT trigger: CancelToken-reachability alone, no post-loop read
+// needed) IS confirmed FIXED on the current compiler — verified in
+// isolation, with and without a `supervised(cancel:)` wrapper, no drain
+// code. `stop`/`graceful_drain` are NOT added anywhere in this package as
+// of this commit — `serve()` has no shutdown knob, same as before this
+// window; the field/param additions were fully reverted once defect 3
+// closed off every combination tried.
 #stable(since = "0.1")
 export fn serve(consume listener TcpListener, handler fn([]u8) -> ServerResponse, policy ServerPolicy) Net Time Detach {
     mut inflight = Semaphore.new(policy.max_inflight())

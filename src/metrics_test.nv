@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // nova-http: metrics_test.nv — `MetricsRegistry` (Plan 222.23 Ф.1). Plain
 // value-type tests — no effect/handler involved (see `metrics.nv`'s own
-// banner for why the ambient-effect design was dropped).
+// banner for why the ambient-effect design was dropped, twice now).
 
 module polaris
 
