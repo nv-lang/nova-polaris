@@ -91,7 +91,11 @@ fn RejectLog @record() Time {
     ro n = count.fetch_add(1) + 1
     if n == 1 {
         window_start.store(now_ns)
-        Log.error("rejected connection: max_inflight admission limit reached")
+        // Admission-503/anti-flood (owner decision 2026-08-01,
+        // `[M-log-levels-standard-plus-threshold]`): a rejected connection
+        // is a client-visible 503 + Retry-After, not an operator emergency —
+        // `warn`, not `error` (kept for panics/crashes only).
+        Log.warn("rejected connection: max_inflight admission limit reached")
     } else {
         ro started_ns = window_start.load()
         ro elapsed_ms = (now_ns - started_ns) / 1_000_000
@@ -99,7 +103,7 @@ fn RejectLog @record() Time {
             match window_start.compare_exchange(started_ns, now_ns) {
                 Ok(_) => {
                     ro flushed = count.swap(0)
-                    Log.error("rejected ${flushed} in last ${elapsed_ms}ms")
+                    Log.warn("rejected ${flushed} in last ${elapsed_ms}ms")
                 }
                 Err(_) => ()
             }
@@ -194,6 +198,15 @@ fn run_request(mut s TcpStream, handler fn([]u8) -> ServerResponse, raw []u8, po
         supervised {
             spawn consume shs = s.share() {
                 mut resp = handler(raw)
+                // [M-serve-router-background-tasks-not-drained] (P1, owner
+                // decision 2026-08-01): `resp.take_background()` BEFORE the
+                // `take_upgrade()` branch below — `run_background(bg)` then
+                // runs on the SUCCESS arm of each branch's own write, mirror
+                // of `servernet.handle_connection`'s `run_background(bg)`
+                // (this driver's own gap: it never called this at all,
+                // so `BackgroundTasks` queued through `serve_router`'s
+                // keep-alive path never ran).
+                ro bg = resp.take_background()
                 match resp.take_upgrade() {
                     // ws-hijack (task 1): write the 101 bytes, then hand the
                     // LIVE (shared) socket to the hook instead of the normal
@@ -213,14 +226,14 @@ fn run_request(mut s TcpStream, handler fn([]u8) -> ServerResponse, raw []u8, po
                     Some(hook) => {
                         resp.header("Connection", "Upgrade")
                         match write_response_keepalive(shs, resp) {
-                            Ok(_)  => { hook(shs); step = ConnStep.StepClose }
+                            Ok(_)  => { run_background(bg); hook(shs); step = ConnStep.StepClose }
                             Err(_) => { step = ConnStep.StepCloseErr }
                         }
                     }
                     None => {
                         resp.header("Connection", if keep_alive { "keep-alive" } else { "close" })
                         match write_response_keepalive(shs, resp) {
-                            Ok(_)  => { step = if keep_alive { ConnStep.StepKeepAlive } else { ConnStep.StepClose } }
+                            Ok(_)  => { run_background(bg); step = if keep_alive { ConnStep.StepKeepAlive } else { ConnStep.StepClose } }
                             Err(_) => { step = ConnStep.StepCloseErr }
                         }
                     }
@@ -255,6 +268,15 @@ fn run_request(mut s TcpStream, handler fn([]u8) -> ServerResponse, raw []u8, po
         step
     }
 }
+
+// `run_background` (drain queued `BackgroundTasks`, if any) is NOT
+// redefined here — `servernet.nv` (this SAME folder-module, `module
+// polaris.net`) already has it (used by `handle_connection`), and a
+// folder-module's peer files share private scope (D78/module-folder
+// model), so it is directly visible/callable from here too. Defining a
+// second copy in this file is a hard compile error (`duplicate definition
+// run_background with same signature`, D84) — found empirically wiring
+// `[M-serve-router-background-tasks-not-drained]`.
 
 // ── Non-consuming response write (keep-alive: the stream survives to serve
 //    the NEXT request on success) — mirrors `handle_connection`'s own
