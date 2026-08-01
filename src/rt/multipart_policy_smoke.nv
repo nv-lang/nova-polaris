@@ -69,7 +69,7 @@ test "serve_router(): multipart part over ServerPolicy.max_multipart_part_size -
                             consume cli = conn
                             ro body = multipart_body("XBOUNDARY", "0123456789") // 10 bytes > 5-byte cap
                             ro _ = cli.write_all(post_multipart_req("/upload", "XBOUNDARY", body))
-                            match cli.read_to_vec(4096) {
+                            match cli.read_bytes(4096) {
                                 Ok(chunk) => { ro _ = got_tx.try_send(chunk) }
                                 Err(_)    => ()
                             }
@@ -108,7 +108,7 @@ test "serve_router(): multipart part within the SAME reduced ServerPolicy.max_mu
                             consume cli = conn
                             ro body = multipart_body("XBOUNDARY", "hi") // 2 bytes <= 5-byte cap
                             ro _ = cli.write_all(post_multipart_req("/upload", "XBOUNDARY", body))
-                            match cli.read_to_vec(4096) {
+                            match cli.read_bytes(4096) {
                                 Ok(chunk) => { ro _ = got_tx.try_send(chunk) }
                                 Err(_)    => ()
                             }

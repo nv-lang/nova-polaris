@@ -64,7 +64,7 @@ fn WebSocket mut @fill_at_least(need int) Net -> Result[(), NetError] {
     mut reading = true
     mut result Result[(), NetError] = Ok(())
     while reading && @buf.len() < need {
-        match @stream.read_to_vec(65536) {
+        match @stream.read_bytes(65536) {
             Ok(chunk) => {
                 if chunk.len() == 0 {
                     reading = false

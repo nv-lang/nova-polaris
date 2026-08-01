@@ -99,7 +99,7 @@ module rt._repro_serve_408_codegen
 //                             // line — the header block never completes.
 //                             ro _ = cli.write_str("GET /health HTTP/1.1\r\nHost: localhost\r\n")
 //                             (500).to_millis().sleep()
-//                             match cli.read_to_vec(4096) {
+//                             match cli.read_bytes(4096) {
 //                                 Ok(chunk) => { ro _ = got_tx.try_send(chunk) }
 //                                 Err(_)    => ()
 //                             }

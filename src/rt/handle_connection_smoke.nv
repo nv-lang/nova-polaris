@@ -70,7 +70,7 @@ test "servernet: live GET /health round-trip over loopback" {
                             Ok(_)  => ()
                             Err(_) => ()
                         }
-                        match cli.read_to_vec(4096) {
+                        match cli.read_bytes(4096) {
                             Ok(chunk) => { got_tx.try_send(chunk) }
                             Err(_)    => ()
                         }

@@ -34,7 +34,7 @@ import polaris.{ServerResponse}
 
 // ── Single deadline-guarded read (deliverable 3 primitive) ────────────────
 //
-// One `read_to_vec` call raced against an ABSOLUTE `Monotonic` deadline via
+// One `read_bytes` call raced against an ABSOLUTE `Monotonic` deadline via
 // a REAL `supervised(deadline:)` scope — the exact shape `examples/flagship/
 // aggregator/src/app/aggregate.nv`'s `fetch_guarded` already proves for
 // racing a `Net` op against a shared deadline, and `std/net/tcp_share_test.nv`
@@ -61,7 +61,7 @@ fn read_attempt(mut s TcpStream, deadline Monotonic) Net Time -> ReadAttempt {
     with Fail[TimeoutError] = |_e| { timed_out.store(true) } {
         supervised(deadline: deadline) {
             spawn consume shs = s.share() { // не `ws`: модуль http.ws затеняет локаль — [M-module-name-shadows-local] (221.1 №49)
-                match shs.read_to_vec(65536) {
+                match shs.read_bytes(65536) {
                     Ok(chunk) => { ro _ = tx.try_send(chunk) }
                     Err(_)    => ()
                 }

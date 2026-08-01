@@ -69,7 +69,7 @@ test "servernet: live SSE streaming round-trip over loopback" {
                         mut acc []u8 = []u8.new()
                         mut reading = true
                         while reading {
-                            match cli.read_to_vec(4096) {
+                            match cli.read_bytes(4096) {
                                 Ok(chunk) => {
                                     if chunk.len() == 0 { reading = false } else { acc.append(chunk) }
                                 }

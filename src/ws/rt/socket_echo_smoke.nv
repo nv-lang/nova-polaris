@@ -79,7 +79,7 @@ test "ws: live handshake + echo (text, fragmented text, binary, ping) + close, o
                         mut header_end = -1
                         mut reading = true
                         while reading && header_end < 0 {
-                            match s.read_to_vec(4096) {
+                            match s.read_bytes(4096) {
                                 Ok(chunk) => {
                                     if chunk.len() == 0 { reading = false }
                                     else { acc.append(chunk); header_end = find_crlfcrlf(acc) }
@@ -126,7 +126,7 @@ test "ws: live handshake + echo (text, fragmented text, binary, ping) + close, o
                         mut header_end = -1
                         mut reading = true
                         while reading && header_end < 0 {
-                            match c0.read_to_vec(4096) {
+                            match c0.read_bytes(4096) {
                                 Ok(chunk) => {
                                     if chunk.len() == 0 { reading = false }
                                     else { acc.append(chunk); header_end = find_crlfcrlf(acc) }
@@ -210,7 +210,7 @@ fn read_frame_inline(mut s TcpStream) Net -> Frame {
     mut fbuf []u8 = []u8.new()
     mut need = frame_len_hint(fbuf)
     while need.is_some() {
-        match s.read_to_vec(4096) {
+        match s.read_bytes(4096) {
             Ok(chunk) => {
                 if chunk.len() == 0 { need = None }
                 else { fbuf.append(chunk); need = frame_len_hint(fbuf) }

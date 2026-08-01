@@ -162,7 +162,7 @@ fn read_request(mut s TcpStream) Net -> []u8 {
     mut header_end = -1
     mut reading = true
     while reading && header_end < 0 {
-        match s.read_to_vec(65536) {
+        match s.read_bytes(65536) {
             Ok(chunk) => {
                 if chunk.len() == 0 { reading = false } else { acc.append(chunk); header_end = dcrlf(acc) }
             }
@@ -174,7 +174,7 @@ fn read_request(mut s TcpStream) Net -> []u8 {
     ro need = content_length_of(acc, header_end)
     mut more = true
     while more && (acc.len() - body_start) < need {
-        match s.read_to_vec(65536) {
+        match s.read_bytes(65536) {
             Ok(chunk) => { if chunk.len() == 0 { more = false } else { acc.append(chunk) } }
             Err(_) => { more = false }
         }

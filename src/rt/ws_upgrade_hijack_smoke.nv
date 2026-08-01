@@ -115,7 +115,7 @@ test "servernet: WebSocketUpgrade.on_upgrade hijack is wired live through serve_
                         mut header_end = -1
                         mut reading = true
                         while reading && header_end < 0 {
-                            match c0.read_to_vec(4096) {
+                            match c0.read_bytes(4096) {
                                 Ok(chunk) => {
                                     if chunk.len() == 0 { reading = false }
                                     else { acc.append(chunk); header_end = find_crlfcrlf(acc) }
@@ -179,7 +179,7 @@ test "servernet: WebSocketUpgrade.on_upgrade hijack is wired live through serve_
 fn read_frame_inline(mut s TcpStream, mut fbuf []u8) Net -> Frame {
     mut need = find_frame_hint(fbuf)
     while need.is_some() {
-        match s.read_to_vec(4096) {
+        match s.read_bytes(4096) {
             Ok(chunk) => {
                 if chunk.len() == 0 { need = None }
                 else { fbuf.append(chunk); need = find_frame_hint(fbuf) }

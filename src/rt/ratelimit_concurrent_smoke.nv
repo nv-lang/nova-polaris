@@ -80,7 +80,7 @@ test "ratelimit(): CONCURRENCY connections at once against ONE shared bucket tab
                         match TcpStream.connect(SocketAddr.loopback(port)) {
                             Ok(consume cli) => {
                                 ro _ = cli.write_str("GET /x HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
-                                match cli.read_to_vec(4096) {
+                                match cli.read_bytes(4096) {
                                     Ok(chunk) => {
                                         ro s = unsafe { chunk.to_str_unchecked() }
                                         ro code = if s.contains("200") { 200 } else if s.contains("429") { 429 } else { 0 }
