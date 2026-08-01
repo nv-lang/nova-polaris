@@ -67,10 +67,7 @@ export fn Part @bytes() -> []u8 => @data
 /// The part's body decoded as UTF-8 text. Invalid UTF-8 → typed `Protocol` error.
 #stable(since = "0.1")
 export fn Part @text() -> Result[str, HttpError] {
-    match @data.to_str() {
-        Ok(s)  => Ok(s)
-        Err(_) => Err(HttpError.protocol_error("multipart: part body is not valid UTF-8"))
-    }
+    @data.to_str().map_err(|_| HttpError.protocol_error("multipart: part body is not valid UTF-8"))
 }
 
 /// A parsed `multipart/form-data` body.
@@ -214,10 +211,8 @@ export fn parse_multipart_body(body []u8, boundary str, limits MultipartLimits) 
                 return Err(HttpError.body_too_large())
             }
             ro headers_start = pos + 2
-            ro headers_end = match find_double_crlf(body, headers_start) {
-                Some(x) => x
-                None    => return Err(HttpError.protocol_error("multipart: part headers not terminated"))
-            }
+            ro headers_end = find_double_crlf(body, headers_start)
+                .ok_or(HttpError.protocol_error("multipart: part headers not terminated"))?
             ro hdrs = mp_header_lines(body[headers_start..headers_end])
             ro body_start = headers_end + 4
             ro found = match find_bytes(body, next_needle, body_start) {
