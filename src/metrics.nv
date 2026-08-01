@@ -84,10 +84,8 @@ export fn MetricsRegistry.new() -> MetricsRegistry => {
 /// Current value of counter `name` (0 if never recorded).
 #stable(since = "0.1")
 export fn MetricsRegistry @counter_value(name str) -> int {
-    mut lock = @lock
-    consume g = lock.lock()
-    mut counters = @counters
-    ro v = counters.get(name) ?? 0
+    consume g = @lock.lock()
+    ro v = @counters.get(name) ?? 0
     g.unlock()
     v
 }
@@ -95,10 +93,8 @@ export fn MetricsRegistry @counter_value(name str) -> int {
 /// Current value of gauge `name` (0.0 if never recorded).
 #stable(since = "0.1")
 export fn MetricsRegistry @gauge_value(name str) -> f64 {
-    mut lock = @lock
-    consume g = lock.lock()
-    mut gauges = @gauges
-    ro v = gauges.get(name) ?? 0.0
+    consume g = @lock.lock()
+    ro v = @gauges.get(name) ?? 0.0
     g.unlock()
     v
 }
@@ -106,21 +102,17 @@ export fn MetricsRegistry @gauge_value(name str) -> f64 {
 /// Add `delta` to counter `name` (created at 0 on first use).
 #stable(since = "0.1")
 export fn MetricsRegistry @record_counter(name str, delta int) {
-    mut lock = @lock
-    consume g = lock.lock()
-    mut counters = @counters
-    ro prev = counters.get(name) ?? 0
-    counters.insert(name, prev + delta)
+    consume g = @lock.lock()
+    ro prev = @counters.get(name) ?? 0
+    ro _ = @counters.insert(name, prev + delta)
     g.unlock()
 }
 
 /// Overwrite gauge `name` (last-write-wins).
 #stable(since = "0.1")
 export fn MetricsRegistry @record_gauge(name str, v f64) {
-    mut lock = @lock
-    consume g = lock.lock()
-    mut gauges = @gauges
-    gauges.insert(name, v)
+    consume g = @lock.lock()
+    ro _ = @gauges.insert(name, v)
     g.unlock()
 }
 
@@ -129,19 +121,21 @@ export fn MetricsRegistry @record_gauge(name str, v f64) {
 /// — V1 attaches no static per-metric description.
 #stable(since = "0.1")
 export fn MetricsRegistry @render_prometheus() -> str {
-    mut lock = @lock
-    consume g = lock.lock()
-    mut counters = @counters
-    mut gauges = @gauges
+    consume g = @lock.lock()
     consume sb = StringBuilder.new()
-    for (name, n) in counters.iter() {
-        sb.append("# TYPE ${name} counter\n${name} ${n}\n")
+    for (name, n) in @counters.iter() {
+        sb.append("# TYPE ${name} counter
+${name} ${n}
+")
     }
-    for (name, v) in gauges.iter() {
-        sb.append("# TYPE ${name} gauge\n${name} ${v}\n")
+    for (name, v) in @gauges.iter() {
+        sb.append("# TYPE ${name} gauge
+${name} ${v}
+")
     }
+    ro out = sb.into_str()
     g.unlock()
-    sb.into_str()
+    out
 }
 
 /// Register `GET /metrics` on `r`, rendering `reg` as Prometheus text.
@@ -151,6 +145,5 @@ export fn metrics_routes(mut r Router, reg MetricsRegistry) -> Result[Router, Ht
 }
 
 fn metrics_export_handler(reg MetricsRegistry) -> Handler {
-    ro registry = reg
-    fn(_req ServerRequest) -> ServerResponse => ServerResponse.text(200, registry.render_prometheus())
+    fn(_req ServerRequest) -> ServerResponse => ServerResponse.text(200, reg.render_prometheus())
 }

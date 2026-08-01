@@ -112,18 +112,17 @@ fn shape_to_schema(ts TypeShape, hoisted_in []HoistedSchema) -> SchemaBuild {
             if find_hoisted(hoisted_in, name) {
                 SchemaBuild{ json: ref_json(name), hoisted: hoisted_in }
             } else {
-                ro built = record_props_schema(fields, hoisted_in)
-                mut new_hoisted = built.hoisted
+                mut built = record_props_schema(fields, hoisted_in)
                 ro required = required_names_json(fields)
-                new_hoisted.push(HoistedSchema{ name, schema: "{\"type\":\"object\",\"properties\":{${built.json}},\"required\":${required}}" })
-                SchemaBuild{ json: ref_json(name), hoisted: new_hoisted }
+                built.hoisted.push(HoistedSchema{ name, schema: "{\"type\":\"object\",\"properties\":{${built.json}},\"required\":${required}}" })
+                SchemaBuild{ json: ref_json(name), hoisted: built.hoisted }
             }
         }
         Sum(name, repr, variants) => {
             if find_hoisted(hoisted_in, name) {
                 SchemaBuild{ json: ref_json(name), hoisted: hoisted_in }
             } else {
-                ro built = sum_variants_schema(variants, hoisted_in)
+                mut built = sum_variants_schema(variants, hoisted_in)
                 mut new_hoisted = built.hoisted
                 // Tagged -> oneOf + discriminator.propertyName; TaggedContent
                 // /Untagged/External -> bare oneOf (plan §1.3 item 9 — the
@@ -289,7 +288,7 @@ fn ensure_http_error_hoisted(hoisted_in []HoistedSchema) -> []HoistedSchema {
 }
 
 fn build_operation(info RouteInfo, hoisted_in []HoistedSchema) -> OperationBuild {
-    ro parts = build_req_parts(info.req_shape, hoisted_in)
+    mut parts = build_req_parts(info.req_shape, hoisted_in)
     mut hoisted = parts.hoisted
 
     mut params_json []str = []str.new()
