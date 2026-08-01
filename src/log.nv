@@ -11,12 +11,18 @@
 // buildable independently of the harder Q1 (Handler-effect-polymorphism)
 // question.
 //
-// Form: `info`/`error` — the two levels the three actual call sites need
-// (the access-log middleware's per-request line is `info`; a background
-// task's panic/throw and a recovered handler panic are `error`). No
-// warn/debug/trace — YAGNI until a real caller needs them, same discipline
-// `TimerMetrics`/`Mem` (std/prelude/effects.nv) already apply to their own
-// op lists.
+// Form (owner decision 2026-08-01, `[M-log-levels-standard-plus-threshold]`,
+// `docs/plans/backlog-followups.md`): FIVE levels — `trace`/`debug`/`info`/
+// `warn`/`error`, one op each, the Rust `log`-crate's own level set (a
+// "cover the common standard" requirement, not YAGNI-trimmed anymore). A
+// THRESHOLD lives in the handler, not the effect: `real_log()` reads
+// `POLARIS_LOG` (`trace|debug|info|warn|error`, case-insensitive; unset or
+// unrecognized → `info`, NEVER panics — `str @to_level()`) once at handler
+// installation, and only prints a line whose own level's rank is `>=` that
+// threshold. A printed line carries an uppercase level prefix (`"WARN ..."`,
+// `"INFO ..."`, …) — `capture_log` (below) does NOT filter or prefix: it is
+// the test leg, and catches every level unconditionally, verbatim, exactly
+// as call sites already assert.
 //
 // Triad (nova-http's `Http`/`real_http`/`mock_http` shape — the design
 // note's own reference model): `Log` (this file) + `real_log()`
@@ -31,15 +37,30 @@
 // Raw-op threading (design note §0, Ф-C): every call site touched by this
 // wave (`BackgroundTasks.@drain()`, `middleware.log.log_apply`, already
 // `Time`; `net.serve.run_request`, already `Net Time`) calls
-// `Log.info`/`Log.error` as a RAW effect op, never through a NAMED
-// Log-declaring function — under `--strict-effects` a raw op is NOT checked
-// against the caller's own effect row (probed 4b/4f/4g/4h/4j in the design
-// note), so NONE of those three functions need `Log` added to their
+// `Log.info`/`Log.error`/`Log.warn` as a RAW effect op, never through a
+// NAMED Log-declaring function — under `--strict-effects` a raw op is NOT
+// checked against the caller's own effect row (probed 4b/4f/4g/4h/4j in the
+// design note), so NONE of those call sites need `Log` added to their
 // signature: the ambient `#default_handler` below resolves it with zero
-// threading. This leans on an open compiler question the design note calls
-// "дыра №93" (a raw op should arguably require the same declaration a
-// named-fn call does, per D62) — cited here as the exact mechanism this
-// wave's cheapness depends on, not re-litigated.
+// threading.
+//
+// `real_log()`'s own internal read of `POLARIS_LOG` does NOT use this same
+// raw-op recipe, found empirically wiring this file: a raw `Os.env_get(...)`
+// path-call (`std/os/effect.nv`) crashes the legacy `emit_c` backend —
+// `internal error ... [P67-LEGACY] Path call return type unknown for
+// method=env_get — checker must annotate` — a non-`()` raw-op return type
+// (`Option[str]`) hits a codegen gap `Log.info`/`Log.error`'s own `()`-typed
+// ops never exercise. Worked around with the std NAMED wrapper instead
+// (`env(key) Os -> Option[str]`, `std/os/os.nv`) under an explicit `with Os
+// = real_os() { ... }` install (`log_threshold_from_env` below) — same
+// belt-and-suspenders shape `write_log_line`'s own `with Io = real_io()
+// { ... }` already uses, so no function in this file needs an `Os`/`Io` row
+// at all. Reported for the integrator (compiler bug, not fixed here — this
+// worktree only reads the main repo); this leans on a SEPARATE open
+// compiler question the design note calls "дыра №93" (a raw op should
+// arguably require the same declaration a named-fn call does, per D62) —
+// cited here as the exact mechanism the `Log.info`/`Log.error`/`Log.warn`
+// cheapness above depends on, not re-litigated.
 //
 // Naming collision, resolved (found empirically wiring this file): a bare
 // `Log` effect name COLLIDES with `middleware/log.nv`'s PRE-EXISTING
@@ -59,30 +80,107 @@
 module polaris
 
 import std.io.{stdout, Io, real_io}
+import std.os.{env, real_os}
+import std.runtime.sync.{Mutex}
 
-/// Ambient logging capability (Plan 222.20 §Q3). Two levels — everything
-/// this package needs today: `info` for routine lines (the access-log
-/// middleware), `error` for failures a human should see (a background
-/// task's panic/throw, a handler panic caught by recover-500).
+/// Log level, Rust `log`-crate order (`Trace` lowest/noisiest .. `Error`
+/// highest). `@rank()` gives the total order `real_log()`'s threshold check
+/// compares; `@tag()` is the uppercase prefix a printed line carries.
+#stable(since = "0.1")
+export type Level enum Trace | Debug | Info | Warn | Error
+
+/// Numeric rank, `Trace` (0) .. `Error` (4) — higher = more severe.
+#stable(since = "0.1")
+export fn Level @rank() -> int {
+    match @ {
+        Trace => 0
+        Debug => 1
+        Info  => 2
+        Warn  => 3
+        Error => 4
+    }
+}
+
+/// Uppercase line prefix (`"TRACE"`, `"DEBUG"`, `"INFO"`, `"WARN"`, `"ERROR"`).
+#stable(since = "0.1")
+export fn Level @tag() -> str {
+    match @ {
+        Trace => "TRACE"
+        Debug => "DEBUG"
+        Info  => "INFO"
+        Warn  => "WARN"
+        Error => "ERROR"
+    }
+}
+
+/// Parse a `POLARIS_LOG` value (case-insensitive `trace|debug|info|warn|
+/// error`). Unset/unrecognized -> `Info` — NEVER panics (an operator typo in
+/// an env var must not take the process down). Instance method on the
+/// SOURCE type (nv-coding-style §1a "fifth door" — a static `Level.parse(s)`
+/// constructor is the forbidden form; canon is `s.to_level()`).
+#stable(since = "0.1")
+export fn str @to_level() -> Level {
+    ro low = @to_ascii_lower()
+    if low == "trace" { Level.Trace }
+    else if low == "debug" { Level.Debug }
+    else if low == "info" { Level.Info }
+    else if low == "warn" { Level.Warn }
+    else if low == "error" { Level.Error }
+    else { Level.Info }
+}
+
+/// Ambient logging capability (Plan 222.20 §Q3; 5-level form, owner decision
+/// 2026-08-01, `[M-log-levels-standard-plus-threshold]`) — one op per
+/// `Level` variant.
 #stable(since = "0.1")
 export type Log effect {
+    trace(msg str) -> ()
+    debug(msg str) -> ()
     info(msg str) -> ()
+    warn(msg str) -> ()
     error(msg str) -> ()
 }
 
-/// Real handler: both levels go to stdout via the ambient `Io` effect —
+// `POLARIS_LOG` threshold, read ONCE at handler-installation time — the
+// NAMED `env(key)` wrapper under an explicit `with Os = real_os() { ... }`
+// (see file banner: the raw `Os.env_get` op crashes `emit_c` for this
+// non-`()` return type), so this fn needs no `Os` row either. Missing/unset
+// -> `Info` (`str @to_level()`'s own default).
+fn log_threshold_from_env() -> Level {
+    with Os = real_os() {
+        match env("POLARIS_LOG") {
+            Some(s) => s.to_level()
+            None    => Level.Info
+        }
+    }
+}
+
+/// Real handler: every level goes to stdout via the ambient `Io` effect —
 /// the SAME recipe the three retired `default_sink`/`default_panic_sink`
 /// copies used (`real_io` is itself `#default_handler`,
-/// `std/io/console.nv`). Bare `#default_handler` form (D431,
-/// `real_time`/`real_io` precedent): the effect is inferred from this fn's
-/// own `-> Effect[Log]` return type, installed lazily on first ambient use
-/// — no `with` required in production code.
+/// `std/io/console.nv`) — but only if its own rank is `>=` the
+/// `POLARIS_LOG` threshold (read once, see `log_threshold_from_env` above);
+/// a printed line carries the level's uppercase tag as a prefix. Bare
+/// `#default_handler` form (D431, `real_time`/`real_io` precedent): the
+/// effect is inferred from this fn's own `-> Effect[Log]` return type,
+/// installed lazily on first ambient use — no `with` required in
+/// production code.
 #stable(since = "0.1")
 #default_handler
 export fn real_log() -> Effect[Log] {
+    ro min = log_threshold_from_env()
     effect Log {
-        info(msg str) -> () { with Io = real_io() { write_log_line(msg) } }
-        error(msg str) -> () { with Io = real_io() { write_log_line(msg) } }
+        trace(msg str) -> () { real_log_line(Level.Trace, min, msg) }
+        debug(msg str) -> () { real_log_line(Level.Debug, min, msg) }
+        info(msg str)  -> () { real_log_line(Level.Info, min, msg) }
+        warn(msg str)  -> () { real_log_line(Level.Warn, min, msg) }
+        error(msg str) -> () { real_log_line(Level.Error, min, msg) }
+    }
+}
+
+fn real_log_line(level Level, min Level, msg str) {
+    if level.rank() >= min.rank() {
+        with Io = real_io() { write_log_line("${level.tag()} ${msg}") }
     }
 }
 
@@ -91,15 +189,42 @@ fn write_log_line(line str) Io -> () {
     ro _ = out.write("${line}\n".bytes())
 }
 
-/// Test handler (the triad's third leg): every `info`/`error` line is
-/// appended to `lines`, IN CALL ORDER — no stdout scraping. `lines` is a
+/// Test handler (the triad's third leg): every level's line is appended to
+/// `lines`, IN CALL ORDER, verbatim (no threshold filter, no level prefix —
+/// `capture_log` catches everything, unlike `real_log`). `lines` is a
 /// `[]str` (`Vec[str]`, reference semantics) — the SAME instance the caller
 /// holds is mutated, same shape `mock_io`'s `IoCapture` fields use
 /// (`std/io/console.nv`).
+///
+/// Race fix (owner question, 2026-08-01): a `with Log = capture_log(lines)
+/// { ... }` installation is ONE `Effect[Log]` value whose ops can be invoked
+/// from MANY concurrent fibers (e.g. `rt/serve_policy_smoke.nv`'s admission-
+/// reject test — the accept loop's own `detach`-ed connections log
+/// concurrently while the test's assembly fiber holds `lines`) — a bare
+/// concurrent `lines.push(...)` from two fibers races the same `Vec`'s
+/// backing storage (append/resize), same class of bug `metrics.nv`'s own
+/// banner documents for an unguarded table. Fixed the same way: a private
+/// `Mutex`, created fresh per `capture_log(...)` call (so unrelated tests
+/// never contend on each other's lock), guards every append. `lines` itself
+/// stays a plain, unwrapped `[]str` — every existing call site (~25, all
+/// tests) keeps reading it directly, unlocked, after the `with` block ends
+/// (by then every concurrent producer inside that block has already joined,
+/// so the post-block read needs no lock of its own) — API fully compatible,
+/// zero call-site changes.
 #stable(since = "0.1")
 export fn capture_log(mut lines []str) -> Effect[Log] {
+    ro lock = Mutex.new()
     effect Log {
-        info(msg str) -> () { lines.push(msg) }
-        error(msg str) -> () { lines.push(msg) }
+        trace(msg str) -> () { capture_push(lock, lines, msg) }
+        debug(msg str) -> () { capture_push(lock, lines, msg) }
+        info(msg str)  -> () { capture_push(lock, lines, msg) }
+        warn(msg str)  -> () { capture_push(lock, lines, msg) }
+        error(msg str) -> () { capture_push(lock, lines, msg) }
     }
+}
+
+fn capture_push(lock Mutex, mut lines []str, msg str) {
+    consume g = lock.lock()
+    lines.push(msg)
+    g.unlock()
 }
