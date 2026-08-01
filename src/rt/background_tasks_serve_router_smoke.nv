@@ -1,0 +1,77 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// `[M-serve-router-background-tasks-not-drained]` (P1, owner decision
+// 2026-08-01) — LIVE-socket wiring proof: `serve_router()` (`net/serve.nv`,
+// the keep-alive accept-loop driver) actually drains a response's
+// `BackgroundTasks`, MIRRORING `background_tasks_smoke.nv`'s own shape but
+// swapping the driver under test: that sibling file proves the OLDER
+// single-shot `servernet.handle_connection` (via `handle_connection_router`)
+// drains — this file proves `run_request`/`serve_connection` (via
+// `serve_router`) drains too, the specific gap this P1 flagged (`resp.
+// take_background()`/`tasks.drain()` were never called anywhere in
+// `run_request`'s body, so `BackgroundTasks` queued through `serve_router`'s
+// keep-alive path never ran — confirmed empirically against `examples/
+// 09-graceful`'s own manual `/work` then `/log` smoke before this fix).
+//
+// EXPECT_TIMEOUT_MS 30000
+
+module rt.background_tasks_serve_router_smoke
+
+import std.net.{TcpListener, TcpStream, SocketAddr, real_net}
+import polaris.{Router, ServerRequest, ServerResponse, BackgroundTasks}
+import polaris.net.{ServerPolicy}
+import polaris.serve.{serve_router}
+
+fn routes(ran_tx ChanWriter[bool]) -> Router {
+    mut r = Router.new()
+    r.get("/notify", fn(_req ServerRequest) -> ServerResponse {
+        ro tx = ran_tx
+        mut bg = BackgroundTasks.new()
+        bg.add(|| { tx.try_send(true) })
+        mut resp = ServerResponse.text(200, "queued")
+        resp.background(bg)
+        resp
+    })!!
+    r
+}
+
+test "[M-serve-router-background-tasks-not-drained]: serve_router() drains BackgroundTasks after a keep-alive response" {
+    with Net = real_net() {
+        ro (port_tx, port_rx) = Channel.new(1)
+        ro (got_tx, got_rx) = Channel.new(1)
+        ro (ran_tx, ran_rx) = Channel.new(1)
+        with Fail[TimeoutError] = |_e| {} {
+            supervised(timeout: 10.to_seconds()) {
+                spawn {
+                    consume lst = match TcpListener.bind(SocketAddr.loopback(0)) {
+                        Ok(consume l)  => l
+                        Err(_) => { ro _ = port_tx.try_send(0 as u16); return }
+                    }
+                    ro _ = port_tx.try_send(lst.local_port())
+                    serve_router(lst, routes(ran_tx), ServerPolicy.new())
+                }
+                spawn {
+                    ro port = match port_rx.recv() { Some(p) => p, None => 0 as u16 }
+                    match TcpStream.connect(SocketAddr.loopback(port)) {
+                        Ok(consume cli) => {
+                            ro _ = cli.write_str("GET /notify HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+                            match cli.read_to_vec(4096) {
+                                Ok(chunk) => { ro _ = got_tx.try_send(chunk) }
+                                Err(_)    => ()
+                            }
+                            cli.close()
+                        }
+                        Err(_) => ()
+                    }
+                }
+            }
+        }
+        got_tx.close()
+        ran_tx.close()
+        ro got = got_rx.try_recv() ?? []u8.new()
+        ro ran = ran_rx.try_recv() ?? false
+        ro resp = unsafe { got.to_str_unchecked() }
+        assert(resp.contains("HTTP/1.1 200 OK"))
+        assert(resp.contains("queued"))
+        assert(ran)   // BackgroundTasks drained through serve_router()'s keep-alive driver
+    }
+}
