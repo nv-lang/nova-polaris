@@ -129,9 +129,9 @@ export fn str @to_level() -> Level {
     else { Level.Info }
 }
 
-/// Ambient logging capability (Plan 222.20 §Q3; 5-level form, owner decision
-/// 2026-08-01, `[M-log-levels-standard-plus-threshold]`) — one op per
-/// `Level` variant.
+/// Ambient logging capability — one op per `Level` variant.
+// 5-уровневая форма — решение владельца 2026-08-01 (Plan 222.20 §Q3,
+// [M-log-levels-standard-plus-threshold]).
 #stable(since = "0.1")
 export type Log effect {
     trace(msg str) -> ()
