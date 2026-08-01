@@ -86,7 +86,6 @@ export fn MetricsRegistry.new() -> MetricsRegistry => {
 export fn MetricsRegistry @counter_value(name str) -> int {
     consume g = @lock.lock()
     ro v = @counters.get(name) ?? 0
-    g.unlock()
     v
 }
 
@@ -95,7 +94,6 @@ export fn MetricsRegistry @counter_value(name str) -> int {
 export fn MetricsRegistry @gauge_value(name str) -> f64 {
     consume g = @lock.lock()
     ro v = @gauges.get(name) ?? 0.0
-    g.unlock()
     v
 }
 
@@ -105,7 +103,6 @@ export fn MetricsRegistry @record_counter(name str, delta int) {
     consume g = @lock.lock()
     ro prev = @counters.get(name) ?? 0
     ro _ = @counters.insert(name, prev + delta)
-    g.unlock()
 }
 
 /// Overwrite gauge `name` (last-write-wins).
@@ -113,7 +110,6 @@ export fn MetricsRegistry @record_counter(name str, delta int) {
 export fn MetricsRegistry @record_gauge(name str, v f64) {
     consume g = @lock.lock()
     ro _ = @gauges.insert(name, v)
-    g.unlock()
 }
 
 /// Render every recorded counter/gauge as Prometheus text-exposition-format
@@ -134,7 +130,6 @@ ${name} ${v}
 ")
     }
     ro out = sb.into_str()
-    g.unlock()
     out
 }
 

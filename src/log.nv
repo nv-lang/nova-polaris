@@ -226,5 +226,4 @@ export fn capture_log(mut lines []str) -> Effect[Log] {
 fn capture_push(lock Mutex, mut lines []str, msg str) {
     consume g = lock.lock()
     lines.push(msg)
-    g.unlock()
 }

@@ -113,7 +113,6 @@ fn BucketTable @bucket_for(key str, capacity int, per_sec f64) Time -> TokenBuck
             nb
         }
     }
-    g.unlock()
     b
 }
 

@@ -1,0 +1,55 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Polaris example 11: structured JSON logging.
+//
+// The ambient `Log` effect ships with a plain-text handler (`real_log`,
+// level prefix + message). This example swaps in a CUSTOM handler that
+// renders every accepted line as one JSON object — the shape log
+// collectors (Loki/ELK/CloudWatch) ingest natively:
+//
+//     {"level":"info","msg":"service started"}
+//     {"level":"warn","msg":"queue depth 90%"}
+//     {"level":"error","msg":"upstream timeout"}
+//
+// Key points:
+//   - the wire shape is a flat `#impl(Serialize)` DTO + `json_encode` —
+//     NO hand-rolled string concatenation, so a message containing quotes,
+//     backslashes or newlines is escaped correctly by serde;
+//   - the handler filters by a minimum `Level` captured at install time
+//     (same threshold discipline `real_log` applies via `POLARIS_LOG`);
+//   - business code below the `with` block calls plain `Log.info(...)` —
+//     it neither knows nor cares that the sink speaks JSON.
+
+module main
+
+import polaris.{Log, Level}
+import std.encoding.serde.{Serialize, json_encode}
+
+/// One log record on the wire. Flat Serialize DTO — encode cannot fail.
+#impl(Serialize)
+type LogLine value { level str, msg str }
+
+/// JSON handler for the ambient `Log` effect: prints one JSON object per
+/// accepted line to stdout, drops lines below `min`.
+///
+/// The encode is inlined in every op (rather than shared via a module-level
+/// helper fn): an effect-op body calling a module free fn currently emits an
+/// undeclared C identifier — [M-effect-op-body-module-fn-undeclared], №244.
+fn json_log(min Level) -> Effect[Log] {
+    effect Log {
+        trace(msg str) -> () { if Level.Trace.rank() >= min.rank() { println(json_encode(LogLine { level: "trace", msg }) ?? "{}") } }
+        debug(msg str) -> () { if Level.Debug.rank() >= min.rank() { println(json_encode(LogLine { level: "debug", msg }) ?? "{}") } }
+        info(msg str)  -> () { if Level.Info.rank()  >= min.rank() { println(json_encode(LogLine { level: "info", msg }) ?? "{}") } }
+        warn(msg str)  -> () { if Level.Warn.rank()  >= min.rank() { println(json_encode(LogLine { level: "warn", msg }) ?? "{}") } }
+        error(msg str) -> () { if Level.Error.rank() >= min.rank() { println(json_encode(LogLine { level: "error", msg }) ?? "{}") } }
+    }
+}
+
+fn main() {
+    with Log = json_log(Level.Info) {
+        Log.debug("connection pool warmed")          // below Info — dropped
+        Log.info("service started")
+        Log.warn("queue depth 90%")
+        Log.error("upstream timeout after 3 retries")
+        Log.info("quotes \"and\" backslashes \\ are escaped by serde")
+    }
+}

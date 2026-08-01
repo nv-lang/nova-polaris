@@ -1,0 +1,9 @@
+# nova.toml — Polaris example: polaris-example-11-json-logs
+
+[package]
+name = "polaris-example-11-json-logs"
+version = "0.1.0"
+description = "Structured JSON logging: a custom Log-effect handler over serde"
+
+[dependencies]
+polaris = { path = "../.." }

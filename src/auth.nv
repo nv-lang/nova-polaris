@@ -441,20 +441,17 @@ export fn memory_session_store(ttl_ms u64) -> Effect[SessionStore] {
                 }
                 None => Ok(none_session())
             }
-            g.unlock()
             out
         }
         save(id str, data SessionData) -> Result[(), HttpError] {
             consume g = mu.lock()
             ro now_ms = Time.now().unix_millis() as u64
             ro _ = map.insert(id, SessionEntry{ data, expires_ms: now_ms + ttl_ms })
-            g.unlock()
             Ok(())
         }
         destroy(id str) -> Result[(), HttpError] {
             consume g = mu.lock()
             ro _ = map.remove(id)
-            g.unlock()
             Ok(())
         }
     }
