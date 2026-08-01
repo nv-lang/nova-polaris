@@ -10,7 +10,7 @@ import polaris.{Router, ServerRequest, ServerResponse, StreamBody, stream_body, 
 import polaris.net.{ServerPolicy}
 import polaris.serve.{serve_router}
 import polaris.{StatusCode}
-import std.net.{TcpListener, SocketAddr}
+import std.net.{TcpListener}
 
 // `stream_body(f)` wraps a closure `fn() -> Option[[]u8]` — called once per
 // chunk, `None` ends the stream. This ticker counts down from 5 and emits
@@ -51,6 +51,6 @@ fn build_router() -> Router =>
 /// `handle_connection_router` — no special-casing needed here.
 fn main() Net Time Detach -> () {
     ro app = build_router()
-    consume listener = TcpListener.bind("0.0.0.0:18088".to_socket_addr()!!)!!
+    consume listener = TcpListener.bind("0.0.0.0:18088")!!
     serve_router(listener, app, ServerPolicy.new())
 }
