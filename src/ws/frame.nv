@@ -91,7 +91,7 @@ export fn Frame.decode(buf []u8) -> Result[(Frame, int), WsError] {
         0x8 => Close
         0x9 => Ping
         0xA => Pong
-        _   => return Err(WsError.BadFrame("unknown opcode ${opcode_val.to_str()}"))
+        _   => return Err(WsError.BadFrame("unknown opcode ${opcode_val}"))
     }
 
     ro masked = (b1 & 0x80) != 0

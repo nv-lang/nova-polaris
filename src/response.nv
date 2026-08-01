@@ -136,7 +136,7 @@ export fn ServerResponse.json[T Serialize](status StatusCode, v T) -> ServerResp
 }
 
 fn server_json_encode_error(e SerError) -> ServerResponse =>
-    ServerResponse.text(StatusCode.INTERNAL_SERVER_ERROR, "500 internal server error: ${e.to_str()}")
+    ServerResponse.text(StatusCode.INTERNAL_SERVER_ERROR, "500 internal server error: ${e}")
 
 // ── IntoResponse impls (the bulk of this plan's value — blanket Result[R,E]
 // gives `?`-ergonomics in handlers for free) ───────────────────────────────
