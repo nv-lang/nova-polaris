@@ -104,8 +104,8 @@ export fn Router mut @get[T1 FromRequest, R IntoResponse](path str, h fn(T1) -> 
 
 [`auth.md`](auth.ru.md#сессии) документирует сегодняшний **скелет**
 сессий: одна конкретная реализация `MemorySessionStore` за протоколом
-`SessionStore`. Обобщённый `session_layer[S SessionStore](store S, ...)` —
-чтобы сам `session_layer` не зашивал in-memory реализацию — естественное
+`SessionStore`. Обобщённый `session[S SessionStore](store S, ...)` —
+чтобы сам `session` не зашивал in-memory реализацию — естественное
 продолжение, отложенное до подтверждения безопасности захвата
 generic-значения замыканием через границу M:N-фибра для этой формы.
 

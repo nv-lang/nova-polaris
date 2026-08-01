@@ -1,7 +1,7 @@
 # 04 — middleware
 
 Свой `middleware(fn(req, next))`, композиция `@then`, порядок layers (первый
-`.layer()` — самый внешний), взаимодействие `nest` + `.layer()`, и две
+`.use()` — самый внешний), взаимодействие `nest` + `.use()`, и две
 батарейки (`log`, `ratelimit`).
 
 По мотивам: tower-middleware showcase из axum, цепочка middleware Express.
@@ -15,7 +15,7 @@ nova build --strict-effects src/main.nv
 
 ```sh
 curl -D - http://localhost:18085/x | grep -i x-order
-# x-order: A,B                      -- .layer(A); .layer(B) -> порядок запроса A -> B -> handler
+# x-order: A,B                      -- .use(A); .use(B) -> порядок запроса A -> B -> handler
 
 curl -D - http://localhost:18085/composed/y | grep -i x-order
 # x-order: A,B,C,D                  -- вложенный роутер: A,B родителя оборачивают СНАРУЖИ собственный C.then(D) под-роутера
@@ -32,16 +32,16 @@ curl -D - http://localhost:18085/rl/limited | grep -iE 'HTTP|retry-after'
 
 ## Что покрутить
 
-- Добавь третий `.layer()` и посмотри, как растёт заголовок `x-order`.
+- Добавь третий `.use()` и посмотри, как растёт заголовок `x-order`.
 - Замени `tag_layer("A").then(tag_layer("B"))` на два отдельных вызова
-  `.layer()` — тот же итоговый порядок, см.
+  `.use()` — тот же итоговый порядок, см.
   [`docs/middleware.ru.md`](../../docs/middleware.ru.md#then-композиция-двух-middleware).
 - Добавь свой middleware, который обрывает цепочку (возвращает ответ, не
   вызывая `next` вообще) — например, проверку API-ключа.
 
 ## Связанная документация
 
-- [`docs/middleware.ru.md`](../../docs/middleware.ru.md) — канон-форма `middleware(...)`, `@then`, `nest`+`.layer()`
+- [`docs/middleware.ru.md`](../../docs/middleware.ru.md) — канон-форма `middleware(...)`, `@then`, `nest`+`.use()`
 - [`docs/batteries.ru.md`](../../docs/batteries.ru.md) — `log`, `ratelimit`, плюс `cors`/`compress`
 
 [English](README.md) · канонический вид `main()` через `serve_router` — в [`examples/README.ru.md`](../README.ru.md).

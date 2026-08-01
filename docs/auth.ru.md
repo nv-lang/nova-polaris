@@ -6,7 +6,7 @@
 extractors заголовков `Bearer`/`BasicAuth`, `JwtClaims[T]` поверх HS256 JWT
 из `std` (Polaris оборачивает его, не переизобретает никакую криптографию),
 extractor `CookieJar` + хелпер `Set-Cookie`, и **скелет** сессий (эффект
-`SessionStore` + in-memory handler + middleware `session_layer`).
+`SessionStore` + in-memory handler + middleware `session`).
 
 Исходник: [`src/auth.nv`](../src/auth.nv).
 
@@ -78,7 +78,7 @@ test "auth: require_jwt middleware guard + JwtAuth.claims_at[T] inside the handl
         ro secret = "sample-secret".bytes()
         ro auth = JwtAuth.new(secret)
         mut r = Router.new()
-        r.layer(require_jwt(auth))
+        r.use(require_jwt(auth))
         r.get("/me", fn(req ServerRequest) -> ServerResponse {
             match auth.claims_at[AuthClaims](req, 1_500_000_000) {
                 Ok(c)  => ServerResponse.text(StatusCode.OK, "sub=${c.claims().sub}")
@@ -147,11 +147,11 @@ test "auth: CookieJar + Set-Cookie round-trip" {
 ## Сессии
 
 ```nova
-test "auth: session_layer assigns + persists a session id via cookie" {
+test "auth: session assigns + persists a session id via cookie" {
     with Time = th.fixed_ms(1_000), Random = th.seeded(7), SessionStore = memory_session_store(60_000) {
         ro cfg = SessionConfig.new().with_cookie_name("sess")
         mut r = Router.new()
-        r.layer(session_layer(cfg))
+        r.use(session(cfg))
         r.get("/s", fn(req ServerRequest) -> ServerResponse {
             ro sid = req.param("session_id") ?? "?"
             ServerResponse.text(StatusCode.OK, "sid=${sid}")
@@ -166,7 +166,7 @@ test "auth: session_layer assigns + persists a session id via cookie" {
 }
 ```
 
-`session_layer(cfg) Random -> Middleware` гарантирует, что каждый запрос
+`session(cfg) Random -> Middleware` гарантирует, что каждый запрос
 доходит до хендлера со значением `session_id`, доступным **по каналу
 path-параметров** — читайте через `req.param("session_id")`, тем же
 каналом, что используют `{name}`-сегменты пути. Запрос без cookie сессии
@@ -198,6 +198,6 @@ eager-сохранение пустой сессии и `Set-Cookie` с безо
 **Полный пример:** [`examples/05-auth`](../examples/05-auth) — Basic/Bearer/JWT/сессии, разделение публичной/приватной зоны и настоящий `/login`, чеканящий токен, реально запущенные (см. также [`10-mini-service`](../examples/10-mini-service) — JWT-авторизация в сервисе побольше).
 
 - [handlers-response.md](handlers-response.ru.md) — `FromRequest`, протокол, который реализует каждый extractor здесь
-- [middleware.md](middleware.ru.md) — ядро `Middleware`, на котором построены `require_jwt`/`session_layer`
+- [middleware.md](middleware.ru.md) — ядро `Middleware`, на котором построены `require_jwt`/`session`
 - [errors.md](errors.ru.md) — как `401`/другая `HttpError` получает форму на проводе
 - [`src/auth.nv`](../src/auth.nv), [`src/auth_test.nv`](../src/auth_test.nv)

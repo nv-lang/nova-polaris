@@ -15,9 +15,9 @@ Source: [`src/middleware.nv`](../src/middleware.nv).
 ## Contents
 
 - [The canon form: `middleware(fn(req, next))`](#the-canon-form-middlewarefnreq-next)
-- [`Router.@layer` and ordering](#routerlayer-and-ordering)
+- [`Router.@use` and ordering](#routeruse-and-ordering)
 - [`@then`: composing two middlewares](#then-composing-two-middlewares)
-- [Router `@layer` and `@nest`](#router-layer-and-nest)
+- [Router `@use` and `@nest`](#router-use-and-nest)
 - [What gets wrapped](#what-gets-wrapped)
 - [Writing your own — batteries style](#writing-your-own--batteries-style)
 - [Related documents](#related-documents)
@@ -56,13 +56,13 @@ fn tag_layer(tag str) -> Middleware {
 that should run once per composition, not once per request — `middleware(...)`
 above is what nearly everything should use instead).
 
-## `Router.@layer` and ordering
+## `Router.@use` and ordering
 
 ```nova
-test "middleware: canon middleware(fn(req, next)) form; first .layer() call is outermost" {
+test "middleware: canon middleware(fn(req, next)) form; first .use() call is outermost" {
     mut r = Router.new()
-    r.layer(tag_layer("A"))
-    r.layer(tag_layer("B"))
+    r.use(tag_layer("A"))
+    r.use(tag_layer("B"))
     r.get("/x", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, "base"))!!
     ro wire = serve_once(r, get_req("/x"))
     // request order A -> B -> handler; unwinding tags the header A,B
@@ -70,8 +70,8 @@ test "middleware: canon middleware(fn(req, next)) form; first .layer() call is o
 }
 ```
 
-**The first `.layer()` call is the outermost wrap and runs first** at
-request time (`r.layer(a); r.layer(b)` → request flow is `a → b → handler`)
+**The first `.use()` call is the outermost wrap and runs first** at
+request time (`r.use(a); r.use(b)` → request flow is `a → b → handler`)
 — this is real `chi` semantics (`chi`'s `chain()` builds `mws[0]` as the
 outermost wrap), the same rule Express follows for `app.use(a); app.use(b)`.
 Layers accumulate on the router and are baked into each route's handler
@@ -79,15 +79,15 @@ Layers accumulate on the router and are baked into each route's handler
 same insertion point) — one closure-wrap per route at setup, not one per
 request.
 
-**Only routes registered *after* `.layer()` are wrapped** — the same rule
+**Only routes registered *after* `.use()` are wrapped** — the same rule
 `chi` documents: add your middlewares before the routes they should cover.
 
 ## `@then`: composing two middlewares
 
 ```nova
-test "middleware: @then composes two middlewares into one (same order as two .layer() calls)" {
+test "middleware: @then composes two middlewares into one (same order as two .use() calls)" {
     mut r = Router.new()
-    r.layer(tag_layer("A").then(tag_layer("B")))
+    r.use(tag_layer("A").then(tag_layer("B")))
     r.get("/x", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, "base"))!!
     ro wire = serve_once(r, get_req("/x"))
     assert(wire_str(wire).contains("x-order: A,B"))
@@ -95,11 +95,11 @@ test "middleware: @then composes two middlewares into one (same order as two .la
 ```
 
 `a.then(b)` composes `a` **outside**, `b` **inside** — `a.then(b).apply(h) == a.apply(b.apply(h))`
-— exactly equivalent to `r.layer(a); r.layer(b)`. Useful for building one
+— exactly equivalent to `r.use(a); r.use(b)`. Useful for building one
 reusable `Middleware` value out of several smaller ones (a "stack" you hand
-to several routers) instead of repeating a `.layer()` sequence everywhere.
+to several routers) instead of repeating a `.use()` sequence everywhere.
 
-## Router `@layer` and `@nest`
+## Router `@use` and `@nest`
 
 `r.nest(prefix, sub)` re-inserts `sub`'s already-registered routes into `r`
 via the same registration path `@route` uses — so `r`'s **current** layers
@@ -110,7 +110,7 @@ different parents does not cross-contaminate — `@nest` never mutates `sub`
 
 ## What gets wrapped
 
-| Registered via | Wrapped by `.layer()`? |
+| Registered via | Wrapped by `.use()`? |
 |---|---|
 | A route's method handlers (`@get`/`@post`/…) | Yes |
 | `MethodRouter.@fallback` (per-route 405 override) | Yes — and if a route has no custom fallback but layers exist, the *default* `405 + Allow` is materialized and wrapped too, so e.g. a CORS preflight `OPTIONS` on a GET-only route still sees the middleware |
@@ -131,5 +131,5 @@ one level of nesting).
 
 - [routing.md](routing.md) — `Router.@route`/`@nest` themselves
 - [batteries.md](batteries.md) — cors/compress/log/ratelimit, all built this way
-- [auth.md](auth.md) — `require_jwt`/`session_layer`, two more middlewares
+- [auth.md](auth.md) — `require_jwt`/`session`, two more middlewares
 - [`src/middleware.nv`](../src/middleware.nv), [`src/middleware_test.nv`](../src/middleware_test.nv)

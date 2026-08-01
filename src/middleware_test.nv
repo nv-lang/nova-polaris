@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Plan 222.4 — `Middleware`/`Router.@layer` pin tests: wrap-at-registration
-// order (real-chi: first `.layer()` = outermost, runs first — resolves the
+// Plan 222.4 — `Middleware`/`Router.@use` pin tests: wrap-at-registration
+// order (real-chi: first `.use()` = outermost, runs first — resolves the
 // plan draft's own admitted confusion, see middleware.nv banner), the
 // "layer only covers routes registered AFTER the call" chi rule, `@nest`
 // interaction (parent layers land OUTSIDE sub's own — plan §3), the
@@ -19,7 +19,7 @@ module polaris
 // tag ends up FIRST in the final string, left-to-right == real execution
 // order — see file banner's trace in the comment below `mark`'s body.
 //
-// Trace for `r.layer(a); r.layer(b)` wrapping `h` (real-chi: `a` outer):
+// Trace for `r.use(a); r.use(b)` wrapping `h` (real-chi: `a` outer):
 //   a's wrapped-handler runs first, calls `next(req)` (= b's
 //   wrapped-handler) BEFORE doing its own post-work; b's wrapped-handler
 //   likewise calls `next(req)` (= raw `h`) first. `h` returns with NO
@@ -59,19 +59,19 @@ fn base_ok() -> Handler =>
 
 test "middleware: a single layer wraps the handler" {
     mut r = Router.new()
-    r.layer(mark("A"))
+    r.use(mark("A"))
     r.get("/x", base_ok())!!
     ro wire = serve_once(r, get_req("/x"))
     assert(status_line(wire) == "HTTP/1.1 200 OK")
     assert(resp_contains(wire, "x-order: A"))
 }
 
-// ── order: first `.layer()` call = outermost, runs first (real-chi) ────────
+// ── order: first `.use()` call = outermost, runs first (real-chi) ────────
 
-test "middleware: first .layer() call is outermost — r.layer(a); r.layer(b) -> a,b" {
+test "middleware: first .use() call is outermost — r.use(a); r.use(b) -> a,b" {
     mut r = Router.new()
-    r.layer(mark("A"))
-    r.layer(mark("B"))
+    r.use(mark("A"))
+    r.use(mark("B"))
     r.get("/x", base_ok())!!
     ro wire = serve_once(r, get_req("/x"))
     assert(resp_contains(wire, "x-order: A,B"))
@@ -79,19 +79,19 @@ test "middleware: first .layer() call is outermost — r.layer(a); r.layer(b) ->
 
 test "middleware: three layers compose in registration order" {
     mut r = Router.new()
-    r.layer(mark("A"))
-    r.layer(mark("B"))
-    r.layer(mark("C"))
+    r.use(mark("A"))
+    r.use(mark("B"))
+    r.use(mark("C"))
     r.get("/x", base_ok())!!
     ro wire = serve_once(r, get_req("/x"))
     assert(resp_contains(wire, "x-order: A,B,C"))
 }
 
-// ── chain-style registration (`Router.@layer` returns `-> @`, D409) ────────
+// ── chain-style registration (`Router.@use` returns `-> @`, D409) ────────
 
-test "middleware: Router.layer chains fluently (.layer(a).layer(b))" {
+test "middleware: Router.layer chains fluently (.use(a).use(b))" {
     mut r = Router.new()
-    r.layer(mark("A")).layer(mark("B"))
+    r.use(mark("A")).use(mark("B"))
     r.get("/x", base_ok())!!
     ro wire = serve_once(r, get_req("/x"))
     assert(resp_contains(wire, "x-order: A,B"))
@@ -99,10 +99,10 @@ test "middleware: Router.layer chains fluently (.layer(a).layer(b))" {
 
 // ── chi rule: layer only covers routes registered AFTER the call ───────────
 
-test "middleware: routes registered BEFORE .layer() are NOT wrapped" {
+test "middleware: routes registered BEFORE .use() are NOT wrapped" {
     mut r = Router.new()
     r.get("/before", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(200, "before"))!!
-    r.layer(mark("A"))
+    r.use(mark("A"))
     r.get("/after", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(200, "after"))!!
     ro wire_before = serve_once(r, get_req("/before"))
     ro wire_after  = serve_once(r, get_req("/after"))
@@ -114,10 +114,10 @@ test "middleware: routes registered BEFORE .layer() are NOT wrapped" {
 
 test "middleware: nest — parent layers wrap outside the sub-router's own layers" {
     mut sub = Router.new()
-    sub.layer(mark("SUB"))
+    sub.use(mark("SUB"))
     sub.get("/settings", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(200, "settings"))!!
     mut r = Router.new()
-    r.layer(mark("PARENT"))
+    r.use(mark("PARENT"))
     r.nest("/api", sub)!!
     ro wire = serve_once(r, get_req("/api/settings"))
     assert(status_line(wire) == "HTTP/1.1 200 OK")
@@ -133,10 +133,10 @@ test "middleware: nesting the same sub-router into two parents stays independent
     mut sub = Router.new()
     sub.get("/x", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(200, "x"))!!
     mut r1 = Router.new()
-    r1.layer(mark("R1"))
+    r1.use(mark("R1"))
     r1.nest("/a", sub)!!
     mut r2 = Router.new()
-    r2.layer(mark("R2"))
+    r2.use(mark("R2"))
     r2.nest("/b", sub)!!
     ro w1 = serve_once(r1, get_req("/a/x"))
     ro w2 = serve_once(r2, get_req("/b/x"))
@@ -147,13 +147,13 @@ test "middleware: nesting the same sub-router into two parents stays independent
 }
 
 // ── @fallback split: per-route 405 IS wrapped, global 404 is NOT ───────────
-// (documented choice, middleware.nv banner: our `.layer()` behaves like
+// (documented choice, middleware.nv banner: our `.use()` behaves like
 // Axum's `route_layer` — covers routes actually registered via
 // `@route`/`@insert_segs`; `Router.@fallback` never reaches that function.)
 
 test "middleware: MethodRouter's per-route 405 fallback IS wrapped by layers" {
     mut r = Router.new()
-    r.layer(mark("A"))
+    r.use(mark("A"))
     mut mr = get(base_ok())
     mr.fallback(fn(req ServerRequest) -> ServerResponse => ServerResponse.text(405, "custom method not allowed"))
     r.route("/guarded", mr)!!
@@ -169,7 +169,7 @@ test "middleware: MethodRouter's per-route 405 fallback IS wrapped by layers" {
 
 test "middleware: default 405 (no custom fallback) IS wrapped when layers exist" {
     mut r = Router.new()
-    r.layer(mark("A"))
+    r.use(mark("A"))
     r.get("/only-get", base_ok())!!
     ro wire = serve_once(r, post_req("/only-get"))
     assert(status_line(wire) == "HTTP/1.1 405 Method Not Allowed")
@@ -179,18 +179,18 @@ test "middleware: default 405 (no custom fallback) IS wrapped when layers exist"
 
 test "middleware: Router's global 404 fallback is NOT wrapped by layers" {
     mut r = Router.new()
-    r.layer(mark("A"))
+    r.use(mark("A"))
     r.fallback(fn(req ServerRequest) -> ServerResponse => ServerResponse.text(404, "custom not found"))
     ro wire = serve_once(r, get_req("/missing"))
     assert(status_line(wire) == "HTTP/1.1 404 Not Found")
     assert(!resp_contains(wire, "x-order"))
 }
 
-// ── `@then`: direct composition, equivalent to two sequential `.layer()` calls ─
+// ── `@then`: direct composition, equivalent to two sequential `.use()` calls ─
 
-test "middleware: @then composes a external / b internal, same order as two .layer() calls" {
+test "middleware: @then composes a external / b internal, same order as two .use() calls" {
     mut r = Router.new()
-    r.layer(mark("A").then(mark("B")))
+    r.use(mark("A").then(mark("B")))
     r.get("/x", base_ok())!!
     ro wire = serve_once(r, get_req("/x"))
     assert(resp_contains(wire, "x-order: A,B"))

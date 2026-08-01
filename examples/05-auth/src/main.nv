@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Polaris example 05 — auth: Basic + Bearer/JWT, a session cookie, and a
-// public/private zone split via `nest` + `.layer()`.
+// public/private zone split via `nest` + `.use()`.
 // By way of: axum's `jwt` example, the FastAPI OAuth2/security tutorial.
 
 module main
 
 import polaris.{Router, ServerRequest, ServerResponse, Bearer, BasicAuth, JwtAuth, JwtClaims, require_jwt}
-import polaris.{SessionConfig, session_layer, memory_session_store}
+import polaris.{SessionConfig, session, memory_session_store}
 import polaris.net.{ServerPolicy}
 import polaris.serve.{serve_router}
 import polaris.{StatusCode, HttpError}
@@ -41,15 +41,15 @@ fn mint_token(sub str) -> str {
 fn build_router() Time Random -> Router {
     ro auth = JwtAuth.new(jwt_secret())
 
-    // session_layer: a fresh session id + Set-Cookie on the first hit, the
+    // session: a fresh session id + Set-Cookie on the first hit, the
     // same id (no new Set-Cookie) on every request that echoes the cookie
     // back. Store is now an ambient `SessionStore` effect (222.20 волна B,
     // `with SessionStore = memory_session_store(...)` in `main`, wraps the
     // whole `serve_router` call below) — no longer a value threaded through
-    // `.layer()`.
+    // `.use()`.
     ro cfg = SessionConfig.new().with_cookie_name("sess")
     ro sess_r = Router.new()
-        .layer(session_layer(cfg))
+        .use(session(cfg))
         .get("/whoami", fn(req ServerRequest) -> ServerResponse {
             ro sid = req.param("session_id") ?? "?"
             ServerResponse.text(StatusCode.OK, "session=${sid}")
@@ -57,7 +57,7 @@ fn build_router() Time Random -> Router {
 
     // ── private zone: every route nested here requires a valid JWT ──────
     ro priv_r = Router.new()
-        .layer(require_jwt(auth))
+        .use(require_jwt(auth))
         .get("/me", fn(req ServerRequest) -> ServerResponse {
             match auth.claims_at[AuthClaims](req, demo_now()) {
                 Ok(c)  => ServerResponse.text(StatusCode.OK, "sub=${c.claims().sub}")
@@ -105,7 +105,7 @@ fn main() Net Time Detach -> () {
         consume listener = TcpListener.bind("0.0.0.0:18086".to_socket_addr()!!)!!
         // `SessionStore` is an explicit resource (222.20 волна B: no ambient
         // default, unlike `Log`) — installed here, wrapping the whole accept
-        // loop so every request's `session_layer` raw-op reaches the same
+        // loop so every request's `session` raw-op reaches the same
         // in-memory store. `Random` (session-id generation) uses the demo's
         // `seeded()` test handler — production code installs a real
         // `Random.secure()` handler once that CSPRNG factory lands (open

@@ -159,8 +159,8 @@ routes onto `r`, under `prefix` — a prefix collision with an existing route
 on `r` is (as always) a typed `Err`, not a panic. `sub`'s own `@fallback`
 (its per-router 404) is **not** carried over — only the top-level
 `Router.@fallback` and per-route `MethodRouter.@fallback` participate; see
-[middleware.md](middleware.md#router-layer-and-nest) for how `nest`
-interacts with `.layer()`.
+[middleware.md](middleware.md#router-use-and-nest) for how `nest`
+interacts with `.use()`.
 
 ## Fallbacks: global 404 vs per-route 405
 
@@ -210,7 +210,7 @@ different `{name}` param names claiming the same trie slot, and a
 **Full example:** [`examples/02-routing`](../examples/02-routing) — every pattern on this page, running for real.
 
 - [handlers-response.md](handlers-response.md) — `ServerRequest`/`ServerResponse`, reading params, `Handler`
-- [middleware.md](middleware.md) — `Router.@layer`, and how it interacts with `@nest`
+- [middleware.md](middleware.md) — `Router.@use`, and how it interacts with `@nest`
 - [errors.md](errors.md) — `HttpError` and how it becomes a wire response
 - [`src/server_router.nv`](../src/server_router.nv) — the trie implementation
 - [`src/router_test.nv`](../src/router_test.nv) — the full pin-test suite this page's examples are drawn from

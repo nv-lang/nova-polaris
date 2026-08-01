@@ -34,7 +34,7 @@ fn hdr(resp ServerResponse, name str) -> str {
 
 fn routed(cfg AccessLog) Time -> Router {
     mut r = Router.new()
-    r.layer(logger(cfg))
+    r.use(logger(cfg))
     r.get("/x", fn(_req ServerRequest) -> ServerResponse => ServerResponse.text(200, "ok"))!!
     r
 }

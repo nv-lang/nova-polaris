@@ -77,7 +77,7 @@ fn build_router() Time -> Router {
     mut articles Vec[Article] = Vec[Article].new()
 
     Router.new()
-        .layer(logger(AccessLog.new()))
+        .use(logger(AccessLog.new()))
         .get("/health", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, "ok"))!!
         .get("/", fn(req ServerRequest) -> ServerResponse =>
             serve_path(about_page(), Static.new(), "", req))!!

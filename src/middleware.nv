@@ -35,7 +35,7 @@
 // compiled clean, so the concern doesn't materialize here either.
 //
 // ── Router integration (edits in `server_router.nv`: `Router.layers` field +
-// `Router.@layer`) ───────────────────────────────────────────────────────
+// `Router.@use`) ───────────────────────────────────────────────────────
 // Layers accumulate on `Router.@layers` and are baked into each
 // `MethodRouter`'s handlers INSIDE `@insert_segs` — i.e. at REGISTRATION
 // time (`@route`/`@get`/…/`@nest` all funnel through `@insert_segs`), NOT at
@@ -44,20 +44,20 @@
 //
 // Order — REAL-chi semantics (this plan-run's explicit resolution of the
 // plan draft's own admitted confusion, plan §2: "частый источник путаницы").
-// The plan's illustrative text there ("r.layer(a); r.layer(b) → запрос идёт
+// The plan's illustrative text there ("r.use(a); r.use(b) → запрос идёт
 // b → a → handler", i.e. LATER-added = outer) does NOT match actual `chi`
 // behavior: `chi`'s `chain()` (middleware.go) builds
 // `h := mws[last](endpoint)` then wraps OUTWARD with `mws[i]` for
 // `i = len-2 downTo 0` — `mws[0]` (FIRST-registered) ends up OUTERMOST and
 // runs FIRST at request time (same for Express `app.use(a); app.use(b)` —
-// `a` runs first). This file implements the REAL rule: **first `.layer()`
-// call = outermost, runs first**; `r.layer(a); r.layer(b)` → request flow
+// `a` runs first). This file implements the REAL rule: **first `.use()`
+// call = outermost, runs first**; `r.use(a); r.use(b)` → request flow
 // is `a → b → handler`. Pin-tested in `middleware_test.nv`.
 //
 // `Router.@fallback` (the GLOBAL 404, set independently of `@route`/
 // `@insert_segs`) is NOT wrapped by layers — it isn't a registered "route"
 // in the trie at all, so per-Handler wrap-at-registration has no hook for
-// it. This makes our `.layer()` behave like Axum's `route_layer` (applies
+// it. This makes our `.use()` behave like Axum's `route_layer` (applies
 // only to routes actually registered on THIS router) rather than Axum's
 // `.layer()` (which wraps the whole tower `Service`, fallback included,
 // because it wraps DISPATCH as a whole — the "expensive" per-request shape
@@ -185,7 +185,7 @@ export fn Middleware @then(inner Middleware) -> Middleware {
 
 // Fold `layers` around `h`. Walking the list back-to-front means the LAST
 // loop iteration applies `layers[0]` around everything already built —
-// `layers[0]` (first `.layer()` call) ends up as the outermost wrap, i.e.
+// `layers[0]` (first `.use()` call) ends up as the outermost wrap, i.e.
 // the one that runs first (real-chi order, see file banner).
 // `h` is `mut` (D246 canon (a), in-out): every call site hands its own
 // binding through exactly once and never rereads it afterward, so there is
@@ -204,7 +204,7 @@ fn wrap_handler(layers []Middleware, mut h Handler) -> Handler {
 // (both are part of "registering this route" — see file banner) with
 // `layers`. A no-op (returns `mr` unchanged) when there are no layers yet —
 // avoids an allocation/rebuild on the hot path for routers that never call
-// `.layer()`.
+// `.use()`.
 // `mr` stays a bare (`ro`-bound) param here — canon (a) (`mut mr`, in-out)
 // was tried and REJECTED: it cascades into `@insert_segs`/`@route`
 // (server_router.nv), which is public API called with fluent RVALUE chains
@@ -253,4 +253,4 @@ fn default_405_handler(allow []str) -> Handler {
 /// BEFORE this call do NOT get it (chi's own documented rule: middlewares
 /// must be added before the routes they should cover). Chainable (D409).
 #stable(since = "0.1")
-export fn Router mut @layer(mw Middleware) -> @ { @layers.push(mw) }
+export fn Router mut @use(mw Middleware) -> @ { @layers.push(mw) }

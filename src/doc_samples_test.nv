@@ -22,7 +22,7 @@ module polaris.doc_samples_test
 import polaris.{Router, get, post, ServerRequest, ServerResponse, Handler, Middleware, middleware}
 import polaris.{Json, PathParam, Query, Bytes, Text, Headers, Multipart}
 import polaris.{Bearer, BasicAuth, JwtAuth, JwtClaims, CookieJar}
-import polaris.{SessionStore, memory_session_store, SessionConfig, session_layer, require_jwt}
+import polaris.{SessionStore, memory_session_store, SessionConfig, session, require_jwt}
 import polaris.{BackgroundTasks, StreamBody, sse_event, WebSocketUpgrade}
 import polaris.{serve_once, route_once, capture_log, Log}
 import polaris.ws.{WebSocket, Message}
@@ -316,19 +316,19 @@ fn tag_layer(tag str) -> Middleware {
     middleware(fn(req ServerRequest, next Handler) -> ServerResponse => add_tag(tag, next, req))
 }
 
-test "middleware: canon middleware(fn(req, next)) form; first .layer() call is outermost" {
+test "middleware: canon middleware(fn(req, next)) form; first .use() call is outermost" {
     mut r = Router.new()
-    r.layer(tag_layer("A"))
-    r.layer(tag_layer("B"))
+    r.use(tag_layer("A"))
+    r.use(tag_layer("B"))
     r.get("/x", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, "base"))!!
     ro wire = serve_once(r, get_req("/x"))
     // request order A -> B -> handler; unwinding tags the header A,B
     assert(wire_str(wire).contains("x-order: A,B"))
 }
 
-test "middleware: @then composes two middlewares into one (same order as two .layer() calls)" {
+test "middleware: @then composes two middlewares into one (same order as two .use() calls)" {
     mut r = Router.new()
-    r.layer(tag_layer("A").then(tag_layer("B")))
+    r.use(tag_layer("A").then(tag_layer("B")))
     r.get("/x", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, "base"))!!
     ro wire = serve_once(r, get_req("/x"))
     assert(wire_str(wire).contains("x-order: A,B"))
@@ -342,7 +342,7 @@ test "batteries: cors — preflight answered 204, simple request decorated" {
     mut c = Cors.new()
     c.allow_origin("https://app.example")
     mut r = Router.new()
-    r.layer(cors(c))
+    r.use(cors(c))
     r.get("/x", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, "ok"))!!
 
     ro simple = route_once(r, get_req_h("/x", "Origin", "https://app.example"))
@@ -356,7 +356,7 @@ test "batteries: cors — preflight answered 204, simple request decorated" {
 
 test "batteries: compress — gzip only above min_size and when the client accepts it" {
     mut r = Router.new()
-    r.layer(compression(Compression.new()))
+    r.use(compression(Compression.new()))
     consume sb = StringBuilder.new()
     mut i = 0
     while i < 100 { sb.append("the quick brown fox jumps over the lazy dog; "); i += 1 }
@@ -374,7 +374,7 @@ test "batteries: log — one line per request, X-Request-Id propagated" {
     ro cfg = AccessLog.new()
     with Time = th.fixed_ms(0), Log = capture_log(lines) {
         mut r = Router.new()
-        r.layer(logger(cfg))
+        r.use(logger(cfg))
         r.get("/x", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, "ok"))!!
         ro resp = route_once(r, get_req("/x"))
         assert(hdr(resp, "x-request-id") == "req-1")
@@ -386,7 +386,7 @@ test "batteries: log — one line per request, X-Request-Id propagated" {
 test "batteries: ratelimit — burst within capacity passes, then 429 + Retry-After" {
     with Time = th.fixed_ms(0) {
         mut r = Router.new()
-        r.layer(ratelimit(RateLimit.new(1, 1.0)))
+        r.use(ratelimit(RateLimit.new(1, 1.0)))
         r.get("/x", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, "ok"))!!
         assert(route_once(r, get_req("/x")).status_code() == 200)
         ro second = route_once(r, get_req("/x"))
@@ -432,7 +432,7 @@ test "auth: require_jwt middleware guard + JwtAuth.claims_at[T] inside the handl
         ro secret = "sample-secret".bytes()
         ro auth = JwtAuth.new(secret)
         mut r = Router.new()
-        r.layer(require_jwt(auth))
+        r.use(require_jwt(auth))
         r.get("/me", fn(req ServerRequest) -> ServerResponse {
             match auth.claims_at[AuthClaims](req, 1_500_000_000) {
                 Ok(c)  => ServerResponse.text(StatusCode.OK, "sub=${c.claims().sub}")
@@ -464,11 +464,11 @@ test "auth: CookieJar + Set-Cookie round-trip" {
     assert(wire_str(serve_once(r, get_req_h("/jar", "Cookie", "sid=xyz"))).contains("sid=xyz"))
 }
 
-test "auth: session_layer assigns + persists a session id via cookie" {
+test "auth: session assigns + persists a session id via cookie" {
     with Time = th.fixed_ms(1_000), Random = th.seeded(7), SessionStore = memory_session_store(60_000) {
         ro cfg = SessionConfig.new().with_cookie_name("sess")
         mut r = Router.new()
-        r.layer(session_layer(cfg))
+        r.use(session(cfg))
         r.get("/s", fn(req ServerRequest) -> ServerResponse {
             ro sid = req.param("session_id") ?? "?"
             ServerResponse.text(StatusCode.OK, "sid=${sid}")

@@ -5,7 +5,7 @@
 Four ready-made [`Middleware`](middleware.md) implementations, each its own
 module, each a fluent config type ending in `@middleware()` (or a
 same-named free function — `cors(cfg)`, `compression(cfg)`, `logger(cfg)`,
-`ratelimit(cfg)`) you hand to `Router.@layer`.
+`ratelimit(cfg)`) you hand to `Router.@use`.
 
 | Battery | Module | Semantics of |
 |---|---|---|
@@ -27,7 +27,7 @@ test "batteries: cors — preflight answered 204, simple request decorated" {
     mut c = Cors.new()
     c.allow_origin("https://app.example")
     mut r = Router.new()
-    r.layer(cors(c))
+    r.use(cors(c))
     r.get("/x", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, "ok"))!!
 
     ro simple = route_once(r, get_req_h("/x", "Origin", "https://app.example"))
@@ -59,7 +59,7 @@ combination is always a caller bug (D325), never live network input.
 ```nova
 test "batteries: compress — gzip only above min_size and when the client accepts it" {
     mut r = Router.new()
-    r.layer(compression(Compression.new()))
+    r.use(compression(Compression.new()))
     consume sb = StringBuilder.new()
     mut i = 0
     while i < 100 { sb.append("the quick brown fox jumps over the lazy dog; "); i += 1 }
@@ -94,7 +94,7 @@ test "batteries: log — one line per request, X-Request-Id propagated" {
     ro cfg = AccessLog.new()
     with Time = th.fixed_ms(0), Log = capture_log(lines) {
         mut r = Router.new()
-        r.layer(logger(cfg))
+        r.use(logger(cfg))
         r.get("/x", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, "ok"))!!
         ro resp = route_once(r, get_req("/x"))
         assert(hdr(resp, "x-request-id") == "req-1")
@@ -130,7 +130,7 @@ into the same `with Time = ..., Log = ... { ... }` block freely.
 test "batteries: ratelimit — burst within capacity passes, then 429 + Retry-After" {
     with Time = th.fixed_ms(0) {
         mut r = Router.new()
-        r.layer(ratelimit(RateLimit.new(1, 1.0)))
+        r.use(ratelimit(RateLimit.new(1, 1.0)))
         r.get("/x", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, "ok"))!!
         assert(route_once(r, get_req("/x")).status_code() == 200)
         ro second = route_once(r, get_req("/x"))
@@ -158,6 +158,6 @@ the middleware carries a `Time` effect row (the bucket refills against
 
 **Full example:** [`examples/04-middleware`](../examples/04-middleware) — `log`+`ratelimit` running for real (see also [`10-mini-service`](../examples/10-mini-service) for `log` in a bigger service).
 
-- [middleware.md](middleware.md) — the `Middleware`/`Router.@layer` core these build on
-- [auth.md](auth.md) — `require_jwt`/`session_layer`, two more ready-made middlewares
+- [middleware.md](middleware.md) — the `Middleware`/`Router.@use` core these build on
+- [auth.md](auth.md) — `require_jwt`/`session`, two more ready-made middlewares
 - [`src/middleware/`](../src/middleware) — full source + pin tests for all four

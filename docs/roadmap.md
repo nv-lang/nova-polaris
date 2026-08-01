@@ -100,7 +100,7 @@ typed `HttpError` on failure.
 
 [`auth.md`](auth.md#sessions) documents the current sessions **skeleton**:
 one concrete `MemorySessionStore` behind the `SessionStore` protocol. A
-generic `session_layer[S SessionStore](store S, ...)` — so `session_layer`
+generic `session[S SessionStore](store S, ...)` — so `session`
 itself doesn't hardcode the in-memory implementation — is the natural
 follow-up, deferred until generic-capture codegen (a closure capturing a
 generic-typed value across the M:N fiber boundary) is proven safe for this

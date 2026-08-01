@@ -36,7 +36,7 @@ const CAPACITY = 5
 
 fn limited_routes() Time -> Router {
     mut r = Router.new()
-    r.layer(ratelimit(RateLimit.new(CAPACITY, 0.01)))   // near-zero refill: no meaningful mid-test admission
+    r.use(ratelimit(RateLimit.new(CAPACITY, 0.01)))   // near-zero refill: no meaningful mid-test admission
     r.get("/x", fn(_req ServerRequest) -> ServerResponse => ServerResponse.text(200, "ok"))!!
     r
 }

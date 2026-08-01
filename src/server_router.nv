@@ -293,7 +293,7 @@ export type Router value {
     mut nodes    []RouteNode
     mut fallback Option[Handler]
     // Middleware chain (Plan 222.4, `middleware.nv`) — accumulated by
-    // `@layer`, baked into handlers INSIDE `@insert_segs` at registration
+    // `@use`, baked into handlers INSIDE `@insert_segs` at registration
     // time. NOT consulted by `@dispatch`/`@fallback` directly (see
     // `middleware.nv`'s banner for the `Router.@fallback` exemption).
     mut layers   []Middleware
