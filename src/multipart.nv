@@ -40,11 +40,11 @@ import std.encoding.base64.{Base64}
 
 /// One part of a `multipart/form-data` body.
 #stable(since = "0.1")
-export type Part value {
-    priv name         str
-    priv filename     Option[str]
-    priv content_type Option[str]
-    priv data         []u8
+export type Part value priv {
+    name         str
+    filename     Option[str]
+    content_type Option[str]
+    data         []u8
 }
 
 /// The part's `name` (`Content-Disposition: form-data; name="..."`).
@@ -116,10 +116,10 @@ export fn Multipart @file(name str) -> Option[Part] {
 /// Exceeding ANY of these maps to `HttpError.body_too_large()` → `413`
 /// (response.nv `http_error_status`, plan §3 — превышение = 413, не опция).
 #stable(since = "0.1")
-export type MultipartLimits value {
-    priv max_parts     int
-    priv max_part_size int
-    priv max_total     int
+export type MultipartLimits value priv {
+    max_parts     int
+    max_part_size int
+    max_total     int
 }
 
 /// Conservative defaults: 256 parts, 8 MiB/part, 32 MiB total (plan §3: "иначе

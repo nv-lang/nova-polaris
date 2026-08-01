@@ -51,10 +51,10 @@ import std.time.duration
 /// `Log` effect (`polaris.Log`, `log.nv`) — stdout by default, redirectable
 /// in tests via `with Log = capture_log(lines) { ... }`.
 #stable(since = "0.1")
-export type AccessLog value {
-    priv request_id bool
-    priv real_ip    bool
-    priv counter    AtomicInt
+export type AccessLog value priv {
+    request_id bool
+    real_ip    bool
+    counter    AtomicInt
 }
 
 /// Default config: request-id on, real-ip off.

@@ -38,10 +38,10 @@ import std.collections.hashmap.{HashMap}
 /// Rate-limit config (fluent; finish with `@middleware()`).
 /// `capacity` = burst size, `per_sec` = sustained refill rate.
 #stable(since = "0.1")
-export type RateLimit value {
-    priv capacity   int
-    priv per_sec    f64
-    priv per_client bool
+export type RateLimit value priv {
+    capacity   int
+    per_sec    f64
+    per_client bool
 }
 
 /// `capacity` tokens of burst, refilled at `per_sec` tokens/second.

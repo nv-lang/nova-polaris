@@ -33,10 +33,10 @@ export type WsError enum
 /// One decoded WebSocket frame (post-unmask — `@payload` is ALWAYS the raw
 /// application bytes, mask already applied during `decode`).
 #stable(since = "0.1")
-export type Frame value {
-    priv fin     bool
-    priv opcode  OpCode
-    priv payload []u8
+export type Frame value priv {
+    fin     bool
+    opcode  OpCode
+    payload []u8
 }
 
 /// FIN bit — false means more `Continuation` frames follow (fragmentation,

@@ -31,9 +31,9 @@ import std.io.{IoError, ErrorKind}
 /// Static-serving config (fluent). Defaults: index = "index.html", no
 /// Cache-Control header.
 #stable(since = "0.1")
-export type Static value {
-    priv index         str
-    priv cache_control str
+export type Static value priv {
+    index         str
+    cache_control str
 }
 
 /// Default config.

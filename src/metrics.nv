@@ -51,10 +51,10 @@ import std.collections.hashmap.{HashMap}
 /// contention is not a concern). Value type over reference-semantics
 /// fields — every copy of a `MetricsRegistry` aliases the SAME table.
 #stable(since = "0.1")
-export type MetricsRegistry value {
-    priv lock     Mutex
-    priv counters HashMap[str, int]
-    priv gauges   HashMap[str, f64]
+export type MetricsRegistry value priv {
+    lock     Mutex
+    counters HashMap[str, int]
+    gauges   HashMap[str, f64]
 }
 
 /// Empty registry — no counters/gauges recorded yet.

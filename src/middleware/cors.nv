@@ -34,16 +34,16 @@ import std.text
 /// `Cors.new()` = strict default: nothing allowed (tower-http `CorsLayer::new()`);
 /// `Cors.permissive()` = any origin/methods/headers, no credentials.
 #stable(since = "0.1")
-export type Cors value {
-    priv origins      []str
-    priv any_origin   bool
-    priv methods      []str
-    priv any_methods  bool
-    priv headers      []str
-    priv any_headers  bool
-    priv expose       []str
-    priv credentials  bool
-    priv max_age_secs int      // -1 = unset
+export type Cors value priv {
+    origins      []str
+    any_origin   bool
+    methods      []str
+    any_methods  bool
+    headers      []str
+    any_headers  bool
+    expose       []str
+    credentials  bool
+    max_age_secs int      // -1 = unset
 }
 
 /// Strict default: no origin allowed until configured.

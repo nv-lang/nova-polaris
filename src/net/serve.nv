@@ -68,9 +68,9 @@ import polaris.{serialize_response_head, encode_chunk, encode_chunk_end}
 
 const REJECT_LOG_WINDOW_MS int = 5000
 
-type RejectLog value {
-    priv count           AtomicInt
-    priv window_start_ms AtomicInt
+type RejectLog value priv {
+    count           AtomicInt
+    window_start_ms AtomicInt
 }
 
 fn RejectLog.new() -> RejectLog => { count: AtomicInt.new(0), window_start_ms: AtomicInt.new(0) }

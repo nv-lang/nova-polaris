@@ -82,8 +82,8 @@ import std.concurrency.supervisor as sup
 /// `ServerRequest`/`ServerResponse`'s собственных heap-backed полей
 /// (`[]u8`/`HeaderMap`): копия шарит те же `tasks`.
 #stable(since = "0.1")
-export type BackgroundTasks value {
-    priv tasks []fn() -> ()
+export type BackgroundTasks value priv {
+    tasks []fn() -> ()
 }
 
 /// Empty collector; panics/failed tasks log via the ambient `Log` effect

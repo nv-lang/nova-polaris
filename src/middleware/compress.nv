@@ -30,9 +30,9 @@ import compress.{gzip_encode, CompressLevel}
 
 /// Compression config (fluent; finish with `@middleware()`).
 #stable(since = "0.1")
-export type Compression value {
-    priv min_size int
-    priv level    CompressLevel
+export type Compression value priv {
+    min_size int
+    level    CompressLevel
 }
 
 /// Defaults: min_size = 1024 bytes, default gzip level.

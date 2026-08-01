@@ -34,9 +34,9 @@ import polaris.ws.{is_upgrade_request, ws_accept_key, WebSocket}
 /// captures what the handshake needs (`Sec-WebSocket-Key` + any offered
 /// subprotocols). Value type (D117) — cheap, read-only after construction.
 #stable(since = "0.1")
-export type WebSocketUpgrade value {
-    priv key       str
-    priv protocols []str
+export type WebSocketUpgrade value priv {
+    key       str
+    protocols []str
 }
 
 /// Client-offered `Sec-WebSocket-Protocol` list (RFC 6455 §11.3.4), in the

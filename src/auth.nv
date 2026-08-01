@@ -463,12 +463,12 @@ export fn memory_session_store(ttl_ms u64) -> Effect[SessionStore] {
 /// Session cookie policy. SECURE DEFAULTS (plan §4): `http_only=true`,
 /// `secure=true`, `same_site=Lax`.
 #stable(since = "0.1")
-export type SessionConfig value {
-    priv cookie_name str
-    priv ttl_ms      u64
-    priv secure      bool
-    priv http_only   bool
-    priv same_site   SameSite
+export type SessionConfig value priv {
+    cookie_name str
+    ttl_ms      u64
+    secure      bool
+    http_only   bool
+    same_site   SameSite
 }
 
 /// Safe-default config: `nova_session` cookie, 1h TTL, HttpOnly+Secure+Lax.
