@@ -39,19 +39,15 @@ type SharedLog value {
 fn SharedLog.new() -> SharedLog => { lock: Mutex.new(), lines: [] }
 
 fn SharedLog @push(line str) {
-    mut lock = @lock
-    consume g = lock.lock()
-    mut lines = @lines
-    lines.push(line)
+    consume g = @lock.lock()
+    @lines.push(line)
     g.unlock()
 }
 
 fn SharedLog @last() -> str {
-    mut lock = @lock
-    consume g = lock.lock()
-    mut lines = @lines
-    ro n = lines.len()
-    ro v = if n == 0 { "(empty — hit /work first)" } else { lines[n - 1] }
+    consume g = @lock.lock()
+    ro n = @lines.len()
+    ro v = if n == 0 { "(empty — hit /work first)" } else { @lines[n - 1] }
     g.unlock()
     v
 }
