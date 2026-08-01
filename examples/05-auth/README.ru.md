@@ -1,10 +1,10 @@
 # 05 — auth
 
 Экстракторы Basic + Bearer/JWT, приватная зона под `require_jwt`, отделённая
-от публичной через `nest` + `.layer()`, эндпоинт `/login`, чеканящий
+от публичной через `nest` + `.use()`, эндпоинт `/login`, чеканящий
 настоящий HS256-токен (`std.crypto.jwt.Jwt.encode_hs256` — сам Polaris
 только ВЕРИФИЦИРУЕТ JWT, у него нет своего login-потока), и session-cookie
-через `session_layer`.
+через `session`.
 
 По мотивам: `jwt`-пример axum, туториал FastAPI OAuth2/security.
 
@@ -38,12 +38,12 @@ curl -b /tmp/jar -s http://localhost:18086/session/whoami   # тот же id, б
 - Добавь второй claim (`role`) в `mint_token`/`AuthClaims` и ветвись по нему
   внутри `/private/me`.
 - Навесь `require_jwt` на ВЕРХНИЙ уровень вместо nest `/private` — посмотри,
-  что станет с `/public` (подсказка: `.layer()` оборачивает только маршруты,
+  что станет с `/public` (подсказка: `.use()` оборачивает только маршруты,
   зарегистрированные ПОСЛЕ вызова — [`docs/middleware.ru.md`](../../docs/middleware.ru.md)).
 
 ## Связанная документация
 
 - [`docs/auth.ru.md`](../../docs/auth.ru.md) — `Bearer`/`BasicAuth`/`JwtAuth`/`CookieJar`/сессии целиком
-- [`docs/middleware.ru.md`](../../docs/middleware.ru.md) — взаимодействие `nest` + `.layer()`
+- [`docs/middleware.ru.md`](../../docs/middleware.ru.md) — взаимодействие `nest` + `.use()`
 
 [English](README.md) · канонический вид `main()` через `serve_router` — в [`examples/README.ru.md`](../README.ru.md).

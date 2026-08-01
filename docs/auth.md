@@ -6,7 +6,7 @@ Auth building blocks — extractors and middleware, not a framework of their
 own: `Bearer`/`BasicAuth` header extractors, `JwtClaims[T]` over `std`'s
 HS256 JWT (Polaris wraps it, it does not reimplement any crypto), a
 `CookieJar` extractor + `Set-Cookie` helper, and a sessions **skeleton**
-(`SessionStore` effect + an in-memory handler + `session_layer` middleware).
+(`SessionStore` effect + an in-memory handler + `session` middleware).
 
 Source: [`src/auth.nv`](../src/auth.nv).
 
@@ -78,7 +78,7 @@ test "auth: require_jwt middleware guard + JwtAuth.claims_at[T] inside the handl
         ro secret = "sample-secret".bytes()
         ro auth = JwtAuth.new(secret)
         mut r = Router.new()
-        r.layer(require_jwt(auth))
+        r.use(require_jwt(auth))
         r.get("/me", fn(req ServerRequest) -> ServerResponse {
             match auth.claims_at[AuthClaims](req, 1_500_000_000) {
                 Ok(c)  => ServerResponse.text(StatusCode.OK, "sub=${c.claims().sub}")
@@ -146,11 +146,11 @@ response are legal and common — this is not `resp.header`, which replaces).
 ## Sessions
 
 ```nova
-test "auth: session_layer assigns + persists a session id via cookie" {
+test "auth: session assigns + persists a session id via cookie" {
     with Time = th.fixed_ms(1_000), Random = th.seeded(7), SessionStore = memory_session_store(60_000) {
         ro cfg = SessionConfig.new().with_cookie_name("sess")
         mut r = Router.new()
-        r.layer(session_layer(cfg))
+        r.use(session(cfg))
         r.get("/s", fn(req ServerRequest) -> ServerResponse {
             ro sid = req.param("session_id") ?? "?"
             ServerResponse.text(StatusCode.OK, "sid=${sid}")
@@ -165,7 +165,7 @@ test "auth: session_layer assigns + persists a session id via cookie" {
 }
 ```
 
-`session_layer(cfg) Random -> Middleware` guarantees every request reaches
+`session(cfg) Random -> Middleware` guarantees every request reaches
 its handler with a `session_id` **path-param-style** value — read it with
 `req.param("session_id")`, the same channel `{name}` path segments use. A
 request with no session cookie gets a fresh id (16 random bytes,
@@ -196,6 +196,6 @@ once generic-capture codegen is proven safe for it).
 **Full example:** [`examples/05-auth`](../examples/05-auth) — Basic/Bearer/JWT/sessions, a public/private zone split, and a real `/login` token-minting endpoint, running for real (see also [`10-mini-service`](../examples/10-mini-service) for JWT auth in a bigger service).
 
 - [handlers-response.md](handlers-response.md) — `FromRequest`, the protocol every extractor here implements
-- [middleware.md](middleware.md) — the `Middleware` core `require_jwt`/`session_layer` build on
+- [middleware.md](middleware.md) — the `Middleware` core `require_jwt`/`session` build on
 - [errors.md](errors.md) — how a `401`/other `HttpError` gets its wire shape
 - [`src/auth.nv`](../src/auth.nv), [`src/auth_test.nv`](../src/auth_test.nv)

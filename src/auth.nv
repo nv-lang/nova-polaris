@@ -5,7 +5,7 @@
 // this file is wrappers ONLY, plan §1), cookie-jar extractor + `Set-Cookie`
 // response helper (axum-extra shape), and the sessions SKELETON (Ф.3:
 // `SessionStore` protocol + `MemorySessionStore` (HashMap+Mutex) +
-// `session_layer` middleware on the 222.4 `Middleware` core).
+// `session` middleware on the 222.4 `Middleware` core).
 //
 // File placement: peer of `server.nv`/`middleware.nv`/`response.nv`/`extract.nv`
 // in the SAME module (`http.server`) — folder-module peers compile in sorted
@@ -58,11 +58,11 @@
 //   production caller must explicitly choose (`with SessionStore =
 //   memory_session_store(ttl_ms) { ... }` around `serve`/router dispatch —
 //   the `mock_http()`/`real_http()` triad shape, not the ambient-`Log` one).
-// · `session_layer(cfg) Random -> Middleware` ensures a session id: existing
+// · `session(cfg) Random -> Middleware` ensures a session id: existing
 //   cookie → injects `("session_id", sid)` into `req.params`; missing →
 //   mints one via `Random.bytes(16)` (hex-encoded, `std.encoding.hex`),
 //   EAGER-saves an empty `SessionData` (`SessionStore.save`, called as a RAW
-//   op — design-note §2 "Совместимость с session_layer": `store` is no longer
+//   op — design-note §2 "Совместимость с session": `store` is no longer
 //   a parameter, ops resolve against whatever `with SessionStore = ...` is
 //   active at request time) and sets the session cookie with the config's
 //   SECURE DEFAULTS (http_only=true, secure=true, SameSite=Lax — plan §4
@@ -515,7 +515,7 @@ fn none_str() -> Option[str] => None
 // Fresh session-id entropy: 16 random bytes (128 bit), hex-encoded. `Random`
 // row (Plan 222.20 Ф.3 Волна B, §Q4): ordinary row-checked usage, same shape
 // as `Uuid.v4()`'s own `Random.u64()` calls (identifiers/uuid.nv) — this fn
-// is called from a closure built inside `session_layer`'s own
+// is called from a closure built inside `session`'s own
 // `Random`-declaring constructor, not from a plain `Handler` body. Strength
 // is `Random`'s HANDLER's duty (CSPRNG in prod — `Random` has no `real_*()`
 // ctor yet, D431 Ф.2-v4 П9 open question; `with Random = th.seeded(...)` in
@@ -535,9 +535,9 @@ fn fresh_session_id() Random -> str => Hex.encode(Random.bytes(16))
 // `use of undeclared identifier` in emitted C; explicit `field: name` with
 // distinct names captures fine.)
 // `req` is `mut` (D246 canon (a)): a plain in-out passthrough
-// (`session_layer`'s closure below hands its own `mut req` through exactly
+// (`session`'s closure below hands its own `mut req` through exactly
 // once, per branch). `store` is GONE (Plan 222.20 Ф.3 Волна B, §Q2
-// design-note "Совместимость с session_layer") — `SessionStore.save(...)`
+// design-note "Совместимость с session") — `SessionStore.save(...)`
 // below is a RAW op (design-note §0 Ф-C / `log.nv`'s own raw-op discipline),
 // resolved against whatever `with SessionStore = ...` is active at request
 // time, so this fn's row stays `Random` only (no `SessionStore`, no `Time`).
@@ -579,12 +579,12 @@ fn session_apply(cookie_name str, ttl_s int, sec bool, honly bool, ssite SameSit
 /// { ... }` around dispatch, Plan 222.20 Ф.3 Волна B §Q2). New visitors get
 /// an empty session EAGER-saved + a `Set-Cookie` per `cfg` (secure
 /// defaults). `store` is NO LONGER a parameter (§Q2 "Совместимость с
-/// session_layer" — clean cutover, Правило 4 forbids a name being both
+/// session" — clean cutover, Правило 4 forbids a name being both
 /// protocol and effect at once, so there is no transitional two-API period).
 /// `Random` row supplies session-id entropy (§Q4) — its cryptographic
 /// strength is the installed handler's responsibility.
 #stable(since = "0.1")
-export fn session_layer(cfg SessionConfig) Random -> Middleware {
+export fn session(cfg SessionConfig) Random -> Middleware {
     // Unpack OUTSIDE the closure (see session_apply note).
     ro cookie_name = cfg.cookie_name
     ro ttl_s = (cfg.ttl_ms / 1000) as int

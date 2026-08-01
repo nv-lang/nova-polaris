@@ -16,9 +16,9 @@ fiber-модели Nova нет async-сигнала готовности как 
 ## Содержание
 
 - [Канон-форма: `middleware(fn(req, next))`](#канон-форма-middlewarefnreq-next)
-- [`Router.@layer` и порядок](#routerlayer-и-порядок)
+- [`Router.@use` и порядок](#routeruse-и-порядок)
 - [`@then`: композиция двух middleware](#then-композиция-двух-middleware)
-- [Router `@layer` и `@nest`](#router-layer-и-nest)
+- [Router `@use` и `@nest`](#router-use-и-nest)
 - [Что оборачивается](#что-оборачивается)
 - [Пишем свой — в стиле батареек](#пишем-свой--в-стиле-батареек)
 - [Связанные документы](#связанные-документы)
@@ -58,13 +58,13 @@ fn tag_layer(tag str) -> Middleware {
 на запрос — вместо неё почти всегда стоит использовать `middleware(...)`
 выше).
 
-## `Router.@layer` и порядок
+## `Router.@use` и порядок
 
 ```nova
-test "middleware: canon middleware(fn(req, next)) form; first .layer() call is outermost" {
+test "middleware: canon middleware(fn(req, next)) form; first .use() call is outermost" {
     mut r = Router.new()
-    r.layer(tag_layer("A"))
-    r.layer(tag_layer("B"))
+    r.use(tag_layer("A"))
+    r.use(tag_layer("B"))
     r.get("/x", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, "base"))!!
     ro wire = serve_once(r, get_req("/x"))
     // request order A -> B -> handler; unwinding tags the header A,B
@@ -72,8 +72,8 @@ test "middleware: canon middleware(fn(req, next)) form; first .layer() call is o
 }
 ```
 
-**Первый вызов `.layer()` — самый внешний слой, и он же выполняется
-первым** во время запроса (`r.layer(a); r.layer(b)` → поток запроса
+**Первый вызов `.use()` — самый внешний слой, и он же выполняется
+первым** во время запроса (`r.use(a); r.use(b)` → поток запроса
 `a → b → handler`) — это настоящая семантика `chi` (`chi`'шный `chain()`
 строит `mws[0]` самым внешним слоем), то же правило, которому следует
 Express для `app.use(a); app.use(b)`. Слои накапливаются на роутере и
@@ -81,16 +81,16 @@ Express для `app.use(a); app.use(b)`. Слои накапливаются н�
 `@get`/…/`@nest` — все сходятся в одной точке вставки) — одна обёртка
 замыканием на route при setup'е, а не одна на запрос.
 
-**Оборачиваются только routes, зарегистрированные *после* `.layer()`** —
+**Оборачиваются только routes, зарегистрированные *после* `.use()`** —
 то же правило, что документирует `chi`: добавляйте middleware до routes,
 которые они должны покрывать.
 
 ## `@then`: композиция двух middleware
 
 ```nova
-test "middleware: @then composes two middlewares into one (same order as two .layer() calls)" {
+test "middleware: @then composes two middlewares into one (same order as two .use() calls)" {
     mut r = Router.new()
-    r.layer(tag_layer("A").then(tag_layer("B")))
+    r.use(tag_layer("A").then(tag_layer("B")))
     r.get("/x", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, "base"))!!
     ro wire = serve_once(r, get_req("/x"))
     assert(wire_str(wire).contains("x-order: A,B"))
@@ -99,12 +99,12 @@ test "middleware: @then composes two middlewares into one (same order as two .la
 
 `a.then(b)` компонует `a` **снаружи**, `b` **внутри** —
 `a.then(b).apply(h) == a.apply(b.apply(h))` — ровно эквивалентно
-`r.layer(a); r.layer(b)`. Полезно, чтобы собрать одно переиспользуемое
+`r.use(a); r.use(b)`. Полезно, чтобы собрать одно переиспользуемое
 значение `Middleware` из нескольких меньших (общий «стек», который вы
 передаёте нескольким роутерам), вместо повторения последовательности
-`.layer()` в каждом месте.
+`.use()` в каждом месте.
 
-## Router `@layer` и `@nest`
+## Router `@use` и `@nest`
 
 `r.nest(prefix, sub)` перевставляет уже зарегистрированные routes из `sub`
 в `r` через тот же путь регистрации, что использует `@route` — так что
@@ -117,7 +117,7 @@ test "middleware: @then composes two middlewares into one (same order as two .la
 
 ## Что оборачивается
 
-| Зарегистрировано через | Оборачивается `.layer()`? |
+| Зарегистрировано через | Оборачивается `.use()`? |
 |---|---|
 | Хендлеры методов route'а (`@get`/`@post`/…) | Да |
 | `MethodRouter.@fallback` (per-route переопределение 405) | Да — и если у route нет собственного fallback, но слои есть, *дефолтный* `405 + Allow` материализуется и тоже оборачивается, так что, например, CORS-preflight `OPTIONS` на GET-only route всё равно видит middleware |
@@ -138,5 +138,5 @@ middleware: небольшой конфиг-значение, метод-бил�
 
 - [routing.md](routing.ru.md) — сами `Router.@route`/`@nest`
 - [batteries.md](batteries.ru.md) — cors/compress/log/ratelimit, все построены так же
-- [auth.md](auth.ru.md) — `require_jwt`/`session_layer`, ещё два middleware
+- [auth.md](auth.ru.md) — `require_jwt`/`session`, ещё два middleware
 - [`src/middleware.nv`](../src/middleware.nv), [`src/middleware_test.nv`](../src/middleware_test.nv)

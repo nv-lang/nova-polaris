@@ -163,8 +163,8 @@ test "routing: nest merges a sub-router's routes under a prefix" {
 — как всегда, типизированный `Err`, не паника. Собственный `@fallback` у
 `sub` (его 404 роутера) **не** переносится — участвуют только верхнеуровневый
 `Router.@fallback` и per-route `MethodRouter.@fallback`; про то, как `nest`
-взаимодействует с `.layer()`, — в
-[middleware.md](middleware.ru.md#router-layer-и-nest).
+взаимодействует с `.use()`, — в
+[middleware.md](middleware.ru.md#router-use-и-nest).
 
 ## Fallback'и: глобальный 404 vs per-route 405
 
@@ -214,7 +214,7 @@ Polaris вместо этого возвращает типизированны�
 **Полный пример:** [`examples/02-routing`](../examples/02-routing) — каждый приём этой страницы, реально запущенный.
 
 - [handlers-response.md](handlers-response.ru.md) — `ServerRequest`/`ServerResponse`, чтение параметров, `Handler`
-- [middleware.md](middleware.ru.md) — `Router.@layer` и его взаимодействие с `@nest`
+- [middleware.md](middleware.ru.md) — `Router.@use` и его взаимодействие с `@nest`
 - [errors.md](errors.ru.md) — `HttpError` и то, как он превращается в ответ на проводе
 - [`src/server_router.nv`](../src/server_router.nv) — реализация дерева
 - [`src/router_test.nv`](../src/router_test.nv) — полный набор pin-тестов, из которого взяты примеры этой страницы

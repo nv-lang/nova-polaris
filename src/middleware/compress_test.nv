@@ -42,7 +42,7 @@ fn hdr(resp ServerResponse, name str) -> str {
 // bogus-direct-call bug, see middleware/log.nv).
 fn routed_resp(cfg Compression, resp ServerResponse) -> Router {
     mut r = Router.new()
-    r.layer(compression(cfg))
+    r.use(compression(cfg))
     ro rr = resp
     r.get("/x", fn(_req ServerRequest) -> ServerResponse => rr)!!
     r

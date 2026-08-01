@@ -5,7 +5,7 @@
 Четыре готовые реализации [`Middleware`](middleware.ru.md), каждая — свой
 модуль, каждая — fluent-конфиг, заканчивающийся `@middleware()` (или
 одноимённой свободной функцией — `cors(cfg)`, `compression(cfg)`,
-`logger(cfg)`, `ratelimit(cfg)`), которую передают в `Router.@layer`.
+`logger(cfg)`, `ratelimit(cfg)`), которую передают в `Router.@use`.
 
 | Батарейка | Модуль | Семантика |
 |---|---|---|
@@ -27,7 +27,7 @@ test "batteries: cors — preflight answered 204, simple request decorated" {
     mut c = Cors.new()
     c.allow_origin("https://app.example")
     mut r = Router.new()
-    r.layer(cors(c))
+    r.use(cors(c))
     r.get("/x", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, "ok"))!!
 
     ro simple = route_once(r, get_req_h("/x", "Origin", "https://app.example"))
@@ -60,7 +60,7 @@ Preflight-запросы `OPTIONS` (с `Access-Control-Request-Method`) отве
 ```nova
 test "batteries: compress — gzip only above min_size and when the client accepts it" {
     mut r = Router.new()
-    r.layer(compression(Compression.new()))
+    r.use(compression(Compression.new()))
     consume sb = StringBuilder.new()
     mut i = 0
     while i < 100 { sb.append("the quick brown fox jumps over the lazy dog; "); i += 1 }
@@ -96,7 +96,7 @@ test "batteries: log — one line per request, X-Request-Id propagated" {
     ro cfg = AccessLog.new()
     with Time = th.fixed_ms(0), Log = capture_log(lines) {
         mut r = Router.new()
-        r.layer(logger(cfg))
+        r.use(logger(cfg))
         r.get("/x", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, "ok"))!!
         ro resp = route_once(r, get_req("/x"))
         assert(hdr(resp, "x-request-id") == "req-1")
@@ -134,7 +134,7 @@ chi'шного `RealIP`: этот заголовок контролируетс�
 test "batteries: ratelimit — burst within capacity passes, then 429 + Retry-After" {
     with Time = th.fixed_ms(0) {
         mut r = Router.new()
-        r.layer(ratelimit(RateLimit.new(1, 1.0)))
+        r.use(ratelimit(RateLimit.new(1, 1.0)))
         r.get("/x", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, "ok"))!!
         assert(route_once(r, get_req("/x")).status_code() == 200)
         ro second = route_once(r, get_req("/x"))
@@ -164,6 +164,6 @@ test "batteries: ratelimit — burst within capacity passes, then 429 + Retry-Af
 
 **Полный пример:** [`examples/04-middleware`](../examples/04-middleware) — `log`+`ratelimit` реально запущенные (см. также [`10-mini-service`](../examples/10-mini-service) — `log` в сервисе побольше).
 
-- [middleware.md](middleware.ru.md) — ядро `Middleware`/`Router.@layer`, на котором это построено
-- [auth.md](auth.ru.md) — `require_jwt`/`session_layer`, ещё два готовых middleware
+- [middleware.md](middleware.ru.md) — ядро `Middleware`/`Router.@use`, на котором это построено
+- [auth.md](auth.ru.md) — `require_jwt`/`session`, ещё два готовых middleware
 - [`src/middleware/`](../src/middleware) — полный исходник + pin-тесты для всех четырёх
