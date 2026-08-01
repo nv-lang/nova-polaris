@@ -1,0 +1,95 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// nova-polaris: servernet_tls_test.nv — real loopback smoke for
+// `handle_connection_tls` (`servernet_tls.nv`, same module) — A-V13, owner
+// decision 2026-08-02: "tls для поляриса до релиза". Same client/server-
+// over-loopback idiom `nova-tls/src/handshake_test.nv`'s own smoke test
+// uses (port handed over a buffered `Channel`, each socket created IN ITS
+// OWN fiber — loop-affinity contract, `net.c`) — a genuine two-endpoint TLS
+// handshake completes in well under a second on loopback, so this is a
+// normal (non-`_slow`) test, not skip-marked (D376 discovery convention).
+//
+// Covers `handle_connection_tls` end-to-end: real TCP loopback connect,
+// real TLS handshake (self-signed fixture, `testdata/`), one raw HTTP/1.1
+// request written by the "client" fiber, routed through a plain byte-level
+// handler (no `Router` — that layer is `polaris.serve`'s own
+// `handle_connection_router_tls`, a thin wrapper this test does not need to
+// duplicate coverage for), response read back and asserted over the
+// DECRYPTED wire. The full accept-LOOP (`serve_tls`, `polaris.serve`) is
+// covered by `examples/12-https` instead (see this package's own
+// `PROGRESS.md`) — a real accept loop needs a real standalone process to
+// smoke-test meaningfully (curl against a built binary), not a second
+// loopback-fiber-pair unit test that would just re-prove the same
+// handshake+handler plumbing this file already covers.
+
+module polaris.net
+
+import std.net.{TcpListener, TcpStream, SocketAddr, real_net}
+import tls.{TlsStream, TlsError, ServerConfig, ClientConfig, VerificationMode}
+import polaris.{ServerResponse, StatusCode}
+
+fn fixture_cert() -> []u8 => embed("testdata/localhost_cert.pem")
+fn fixture_key() -> []u8 => embed("testdata/localhost_key.pem")
+
+fn must_tls(r Result[TlsStream, TlsError]) -> TlsStream {
+    match r {
+        Ok(consume s) => s
+        Err(e) => panic("tls failed: ${e}")
+    }
+}
+
+// Fixed response, ignores the request bytes — this test only needs to prove
+// the byte-level handler is reached and its `ServerResponse` makes it back
+// over the encrypted wire, not routing logic (`Router` has its own tests).
+fn fixed_handler(_raw []u8) -> ServerResponse =>
+    ServerResponse.text(StatusCode.OK, "hello_tls_test")
+
+test "smoke: TLS loopback client -> handle_connection_tls -> decrypted HTTP response" {
+    with Net = real_net() {
+        // `(tx, rx)` tuple destructure — `net/policy.nv`'s own precedent
+        // (`ro (tx, rx) = Channel.new(1)`), not `handshake_test.nv`'s
+        // `ch_port.tx`/`ch_port.rx` field-access form: capturing the SENDER/
+        // RECEIVER halves individually (each `ro`, one per fiber) is a
+        // proven-safe cross-`spawn` capture; capturing the shared
+        // `Channel` record itself (`mut`, needed for the field-chain form)
+        // hits `E_CONCURRENT_MUT_CAPTURE` — the checker's static sketch
+        // pass does not resolve a bare `Channel[u16]` type-argument
+        // annotation ("unresolved type name `Channel`"), so neither the
+        // implicit- nor explicit-type variant of that form crosses a
+        // `spawn` boundary on this compiler.
+        ro (tx, rx) = Channel.new(1)
+        supervised {
+            // Server fiber: bind, hand the port over, one accept, TLS
+            // handshake, ONE request through `handle_connection_tls`.
+            spawn {
+                consume lst = TcpListener.bind(SocketAddr.loopback(0))!!
+                tx.send(lst.local_port())
+                ro accepted = lst.accept()
+                lst.close()
+                mut conn = accepted!!
+                ro scfg = ServerConfig.new(fixture_cert(), fixture_key())
+                consume tls_stream = must_tls(TlsStream.accept(conn, scfg))
+                ro result = handle_connection_tls(tls_stream, fixed_handler)
+                assert(match result { Ok(_) => true, Err(_) => false })
+            }
+            // Client fiber: connect, TLS handshake trusting the self-signed
+            // fixture (`CustomRoots`), write a minimal well-formed request,
+            // read the response back, assert the body crossed the wire.
+            spawn {
+                ro port = match rx.recv() { Some(p) => p, None => 0 as u16 }
+                assert(port > 0)
+                consume conn = TcpStream.connect(SocketAddr.loopback(port))!!
+                ro ccfg = ClientConfig.new("localhost")
+                    .verification(VerificationMode.CustomRoots(fixture_cert()))
+                consume tls_stream = must_tls(TlsStream.connect(conn, ccfg))
+                ro req = "GET / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\n\r\n".bytes()
+                ro wrote = match tls_stream.write_all(req) { Ok(_) => true, Err(_) => false }
+                assert(wrote)
+                ro resp_bytes = match tls_stream.read_bytes(4096) { Ok(b) => b, Err(_) => []u8.new() }
+                tls_stream.close()
+                ro resp_text = resp_bytes.to_str() ?? ""
+                assert(resp_text.contains("200"))
+                assert(resp_text.contains("hello_tls_test"))
+            }
+        }
+    }
+}

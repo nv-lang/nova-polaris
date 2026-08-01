@@ -30,6 +30,13 @@ src = "src"
 # `compress` (Ф.A-1, 2026-07-25): `middleware/compress.nv` (gzip response
 # compression, migrated from nova-http) imports it directly — same
 # leaf-dependency shape as `http`'s own `compress` dep (Plan 205 Ф.2).
+#
+# `tls` (A-V13, owner decision 2026-08-02: "tls для поляриса до релиза"):
+# `serve/serve_tls.nv`/`net/servernet_tls.nv` import it directly for the
+# HTTPS server path (`TlsStream`/`ServerConfig`) — same leaf-dependency
+# shape as `http`'s own `tls` dep (`nova-http/nova.toml`), NOT only
+# transitive through `http` (polaris code itself references `tls.*`).
 [dependencies]
 http = { git = "https://github.com/nv-lang/nova-http", version = "0.1" }  # A-V7 2026-07-30: тег v0.1.1 перевыпущен, dev-форма path снята (план D420 исполнен); локальная разработка — через nova.override.toml
 compress = { git = "https://github.com/nv-lang/nova-compress", version = "0.1" }
+tls = { git = "https://github.com/nv-lang/nova-tls", version = "0.1" }

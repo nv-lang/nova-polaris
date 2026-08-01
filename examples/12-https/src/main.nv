@@ -1,0 +1,40 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Polaris example 12 — https: TLS termination in front of a `Router`.
+//
+// Same `Router.new()` + one `.get()` shape as `01-hello` — the only new
+// piece is `polaris.serve.serve_tls` in place of `serve_router`: it takes a
+// `tls.ServerConfig` (cert + key PEM bytes) alongside the listen address
+// and `Router`, TLS-handshakes EACH accepted connection before ever
+// reaching the router, and serves one request per connection
+// (`Connection: close` — see `serve_tls`'s own doc-comment in
+// `polaris/src/serve/serve_tls.nv` for why this is deliberately a smaller
+// entry point than `serve_router`'s keep-alive/`ServerPolicy` loop).
+//
+// `certs/localhost_cert.pem`/`certs/localhost_key.pem` are a self-signed,
+// test-only fixture (see `certs/README.md`) — `embed(...)` (D412) pulls
+// them in at compile time, no `Fs` effect needed at runtime.
+
+module main
+
+import polaris.{Router, ServerRequest, ServerResponse, StatusCode, Log}
+import polaris.serve.{serve_tls}
+import tls.{ServerConfig}
+
+fn server_cert() -> []u8 => embed("../certs/localhost_cert.pem")
+
+fn server_key() -> []u8 => embed("../certs/localhost_key.pem")
+
+fn build_router() -> Router =>
+    Router.new()
+    .get("/", fn(req ServerRequest) -> ServerResponse =>
+        ServerResponse.text(StatusCode.OK, "hello, world -- over HTTPS"))!!
+
+/// Same one-function shape every other example's `main()` uses
+/// (`../README.md#why-every-main-looks-the-same-shape`) — `serve_tls`
+/// blocks, running the accept-loop-plus-handshake directly in `main`'s own
+/// fiber, no `supervised { spawn { ... } }` wrapper needed.
+fn main() Net Time Detach Log -> () {
+    ro app = build_router()
+    ro cfg = ServerConfig.new(server_cert(), server_key())
+    ro _ = serve_tls("0.0.0.0:18093", cfg, app)
+}
