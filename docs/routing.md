@@ -21,6 +21,7 @@ Spec/design: [Plan 222.1](https://github.com/nv-lang/nova/blob/main/docs/plans/2
 - [`nest`: prefix-grouped sub-routers](#nest-prefix-grouped-sub-routers)
 - [Fallbacks: global 404 vs per-route 405](#fallbacks-global-404-vs-per-route-405)
 - [Route conflicts are typed errors](#route-conflicts-are-typed-errors)
+- [Typed routes](#typed-routes)
 - [Related documents](#related-documents)
 
 ---
@@ -205,11 +206,31 @@ called for. Three conflict shapes are caught: an exact-duplicate path, two
 different `{name}` param names claiming the same trie slot, and a
 `{*rest}` that isn't the pattern's last segment.
 
+## Typed routes
+
+Every `Router.@get`/`@post`/`@put`/`@delete`/`@patch(path, Handler)` shown
+above registers a plain, untyped handler. `Router.@get_typed`/`@post_typed`/…
+register a `TypedRoute` instead — same dispatch, but the route's
+request/response `TypeShape`s are additionally recorded for
+`Router.introspect()`. `@post_typed_h` goes one step further: a **bare**
+handler `fn(T) -> ServerResponse` plus one type parameter, no manual
+extraction or `TypedRoute` literal to write —
+
+```nova
+r.post_typed_h[AddNoteReq]("/notes/{id}", add_note)!!
+```
+
+— where `AddNoteReq` is a type whose *fields* each declare their own
+extraction source (`#impl(FromPath)`/`#impl(FromQuery)`/`#impl(FromBody)`).
+Full writeup, including the failure short-circuit and the OpenAPI
+connection: [extractors.md](extractors.md).
+
 ## Related documents
 
 **Full example:** [`examples/02-routing`](../examples/02-routing) — every pattern on this page, running for real.
 
 - [handlers-response.md](handlers-response.md) — `ServerRequest`/`ServerResponse`, reading params, `Handler`
+- [extractors.md](extractors.md) — `FromRequest`, `TypedRoute`/`*_typed`/`*_typed_h`, the OpenAPI connection
 - [middleware.md](middleware.md) — `Router.@use`, and how it interacts with `@nest`
 - [errors.md](errors.md) — `HttpError` and how it becomes a wire response
 - [`src/server_router.nv`](../src/server_router.nv) — the trie implementation

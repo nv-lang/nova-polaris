@@ -54,6 +54,9 @@ Polaris.
 - [`docs/handlers-response.ru.md`](docs/handlers-response.ru.md) —
   `ServerRequest`/`ServerResponse`, `IntoResponse`, типизированные
   extractors, `StatusCode`
+- [`docs/extractors.ru.md`](docs/extractors.ru.md) — семейство
+  `FromRequest`, typed-маршруты (`TypedRoute`/`*_typed`/`*_typed_h`), связь
+  с OpenAPI
 - [`docs/middleware.ru.md`](docs/middleware.ru.md) — написание и
   композиция `Middleware`
 - [`docs/batteries.ru.md`](docs/batteries.ru.md) — cors, compress, log,

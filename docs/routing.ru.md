@@ -21,6 +21,7 @@
 - [`nest`: суб-роутеры с префиксом](#nest-суб-роутеры-с-префиксом)
 - [Fallback'и: глобальный 404 vs per-route 405](#fallbackи-глобальный-404-vs-per-route-405)
 - [Конфликты routes — типизированные ошибки](#конфликты-routes--типизированные-ошибки)
+- [Typed-маршруты](#typed-маршруты)
 - [Связанные документы](#связанные-документы)
 
 ---
@@ -209,11 +210,31 @@ Polaris вместо этого возвращает типизированны�
 пути, два разных имени `{name}`-параметра, претендующих на один и тот же
 слот дерева, и `{*rest}`, не являющийся последним сегментом шаблона.
 
+## Typed-маршруты
+
+Каждый `Router.@get`/`@post`/`@put`/`@delete`/`@patch(path, Handler)` выше
+регистрирует обычный, нетипизированный хендлер. `Router.@get_typed`/
+`@post_typed`/… регистрируют вместо этого `TypedRoute` — та же диспетчеризация,
+но `TypeShape` запроса/ответа route'а дополнительно записываются для
+`Router.introspect()`. `@post_typed_h` идёт на шаг дальше: **голый** хендлер
+`fn(T) -> ServerResponse` плюс один type-параметр, без ручного извлечения и
+без литерала `TypedRoute` —
+
+```nova
+r.post_typed_h[AddNoteReq]("/notes/{id}", add_note)!!
+```
+
+— где `AddNoteReq` — тип, чьи *поля* каждое объявляет свой собственный
+источник извлечения (`#impl(FromPath)`/`#impl(FromQuery)`/`#impl(FromBody)`).
+Полное описание, включая короткое замыкание при отказе и связь с OpenAPI:
+[extractors.md](extractors.ru.md).
+
 ## Связанные документы
 
 **Полный пример:** [`examples/02-routing`](../examples/02-routing) — каждый приём этой страницы, реально запущенный.
 
 - [handlers-response.md](handlers-response.ru.md) — `ServerRequest`/`ServerResponse`, чтение параметров, `Handler`
+- [extractors.md](extractors.ru.md) — `FromRequest`, `TypedRoute`/`*_typed`/`*_typed_h`, связь с OpenAPI
 - [middleware.md](middleware.ru.md) — `Router.@use` и его взаимодействие с `@nest`
 - [errors.md](errors.ru.md) — `HttpError` и то, как он превращается в ответ на проводе
 - [`src/server_router.nv`](../src/server_router.nv) — реализация дерева

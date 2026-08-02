@@ -184,11 +184,18 @@ value-обёртка с аксессором `@data()`:
 же, как для любого другого типа с `#impl(Deserialize)`). То же самое — для
 `Query[T]` при многоключевой query-строке.
 
-**Сегодняшний канон** — вызывать `T.from_request(req)` вручную,
-композируя внутри обычного `Handler`; сахара, позволяющего хендлеру принимать
-`PathParam[T]`/`Query[T]`/`Json[T]` как голые параметры функции (форма Axum'а
-`async fn handler(Path(id): Path<u32>, Json(body): Json<T>)`), пока **нет**.
-Почему — и что должно это разблокировать — см. [roadmap.md](roadmap.ru.md).
+**Ручной вызов `T.from_request(req)`**, композируемый внутри обычного
+`Handler` (как ниже), — валидная форма, полезная всякий раз, когда логика
+извлечения route'а не укладывается в форму «собрать бандл и
+зарегистрировать». Чтобы хендлер вместо этого принимал голое типизированное
+значение как *свой собственный* параметр функции, см.
+[extractors.md](extractors.ru.md#typed-маршруты-typedroute--_typed):
+семейство `TypedRoute`/`*_typed`/bare-sugar `*_typed_h` регистрирует
+хендлер формы `Router.@post_typed_h[T](path, h fn(T) -> ServerResponse)`
+без ручного разворачивания. Что всё ещё **не** реализовано — одноимённая
+arity-перегрузка прямо на `@get`/`@post`/… (форма Axum'а
+`async fn handler(Path(id): Path<u32>, Json(body): Json<T>)`) — почему, см.
+[roadmap.md](roadmap.ru.md#сахар-arity-перегрузок-для-extractors).
 
 ```nova
 #impl(Serialize + Deserialize)
@@ -320,6 +327,7 @@ test "handlers-response: StatusCode — named constants, validated new(), unsafe
 **Полный пример:** [`examples/03-json-api`](../examples/03-json-api) — `Json[T]`/`ServerResponse.json`/`IntoResponse` в настоящем REST CRUD-сервисе.
 
 - [routing.md](routing.ru.md) — где регистрируются `Handler`'ы
+- [extractors.md](extractors.ru.md) — `TypedRoute`/`*_typed`/`*_typed_h`, голый-типовой сахар, связь с OpenAPI
 - [middleware.md](middleware.ru.md) — обёртывание `Handler`
 - [errors.md](errors.ru.md) — маппинг статуса/тела у `HttpError` целиком
 - [roadmap.md](roadmap.ru.md) — сахар arity-перегрузок для extractors (запланировано)

@@ -54,6 +54,8 @@ actually run it. See [`examples/README.md`](examples/README.md).
 - [`docs/handlers-response.md`](docs/handlers-response.md) —
   `ServerRequest`/`ServerResponse`, `IntoResponse`, typed extractors,
   `StatusCode`
+- [`docs/extractors.md`](docs/extractors.md) — `FromRequest` family, typed
+  routes (`TypedRoute`/`*_typed`/`*_typed_h`), the OpenAPI connection
 - [`docs/middleware.md`](docs/middleware.md) — writing and composing
   `Middleware`
 - [`docs/batteries.md`](docs/batteries.md) — cors, compress, log,

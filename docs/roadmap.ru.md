@@ -55,8 +55,18 @@ export fn Router mut @get[T1 FromRequest, R IntoResponse](path str, h fn(T1) -> 
 на arity-перегрузках, отслеживается выше по потоку, в компиляторе Nova —
 не то, что можно обойти локально в этом пакете). Низкоуровневая форма
 `Router.@get(path, Handler)` + ручная композиция per-extractor,
-показанная по всему набору доков — единственный путь регистрации, пока
-этот пробел компилятора не закроется.
+показанная по всему набору доков — единственный путь регистрации *под
+этими самыми именами методов*, пока этот пробел компилятора не закроется.
+
+**Что уже есть под другим именем**: `Router.@post_typed_h[T FromRequest +
+Reflect](path, h fn(T) -> ServerResponse)` — голый хендлер плюс один
+type-параметр, тот же эргономичный пункт назначения, что и сахар выше,
+зарегистрированный под именем, не коллидирующим с набором перегрузок
+`@post` (обходит ровно тот пробел кодогена, что описан в этом разделе). См.
+[extractors.md](extractors.ru.md#bare-sugar-регистрация-_typed_h) за полным
+описанием — это более узкое, отдельно-именованное семейство (один метод,
+только `POST`, один бандл-type-параметр), не 0–4-extractor'ная
+одноимённая перегрузка, набросанная выше.
 
 ## Переименование `Path[T]`
 
@@ -70,12 +80,22 @@ export fn Router mut @get[T1 FromRequest, R IntoResponse](path str, h fn(T1) -> 
 
 ## Генерация OpenAPI
 
-Не реализовано. Эквивалента `#[derive(OpenApi)]`/`utoipa` пока не
-существует — формы route'ов/extractors/ответов сейчас никак не
-отражаются в spec-документ. Если и когда это появится, будет
-задокументировано здесь первым делом, с разобранным примером — точно так
-же, как всё остальное в этом наборе доков; никакой умозрительной
-поверхности пока не описывается.
+**Реализовано** (план 222.8 Ф.1–Ф.3) — этот раздел раньше говорил «не
+реализовано»; это было устаревшей информацией. `Reflect`/`TypeShape` из
+`std.reflect` описывают структурную форму типа,
+[`TypedRoute`/`*_typed`/`*_typed_h`](extractors.ru.md#typed-маршруты-typedroute--_typed)
+записывают её на каждый route, `Router.introspect()` её сообщает, а
+`openapi_json`/`openapi_handler` из [`src/openapi.nv`](../src/openapi.nv)
+рендерят документ OpenAPI 3.0 JSON прямо из этих шэйпов — без
+промежуточного типа схемы, без макро-эквивалента
+`#[derive(OpenApi)]`. Полное описание:
+[extractors.md#связь-с-openapi](extractors.ru.md#связь-с-openapi); разобранный
+пример: route `/openapi.json` в [`examples/03-json-api`](../examples/03-json-api)
++ его закоммиченный [`openapi.golden.json`](../examples/03-json-api/openapi.golden.json).
+Отдельной страницы `openapi.md` (полная форма схемы parameters/requestBody/
+responses, правила hoisting'а `components/schemas`) пока нет — сегодня
+подробный референс — собственные doc-comment'ы эмиттера в
+`src/openapi.nv`.
 
 ## Фаза B: нарезка модулей
 
@@ -126,6 +146,7 @@ in-flight-задач, который shutdown ждёт с тем же дедла
 ## Связанные документы
 
 - [handlers-response.md](handlers-response.ru.md) — сегодняшний канон extractors
+- [extractors.md](extractors.ru.md) — `FromRequest`, typed-маршруты, связь с OpenAPI
 - [auth.md](auth.ru.md) — сегодняшний скелет сессий
 - [serving.md](serving.ru.md) — сегодняшние `BackgroundTasks`/`ServerPolicy`
 - [errors.md](errors.ru.md) — сегодняшний канон обработки ошибок

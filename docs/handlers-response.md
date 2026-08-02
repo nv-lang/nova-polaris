@@ -182,11 +182,17 @@ many `{name}` segments a route has, as fields of a record `T` matched by
 name (`rename` field-attributes work the same as any other `#impl(Deserialize)`
 type). The same applies to `Query[T]` for multi-key query strings.
 
-**Today's canon** is calling `T.from_request(req)` manually, composed inside
-a plain `Handler` — there is *no* sugar yet for a handler to take
-`PathParam[T]`/`Query[T]`/`Json[T]` as bare fn parameters (Axum's
-`async fn handler(Path(id): Path<u32>, Json(body): Json<T>)` shape). See
-[roadmap.md](roadmap.md) for why, and what unblocks it.
+**Calling `T.from_request(req)` by hand**, composed inside a plain `Handler`
+(as below), is one valid form — useful whenever a route's extraction logic
+doesn't fit a bundle-and-register shape. For a handler to instead take a
+bare typed value as its *own* fn parameter, see
+[extractors.md](extractors.md#typed-routes-typedroute--_typed):
+`TypedRoute`/`*_typed`/the bare-sugar `*_typed_h` family register a
+`Router.@post_typed_h[T](path, h fn(T) -> ServerResponse)`-shaped handler
+with zero manual unwrapping. What is *still* not implemented is a same-name
+arity overload directly on `@get`/`@post`/… themselves (Axum's
+`async fn handler(Path(id): Path<u32>, Json(body): Json<T>)` shape) — see
+[roadmap.md](roadmap.md#extractor-arity-overload-sugar) for why.
 
 ```nova
 #impl(Serialize + Deserialize)
@@ -314,6 +320,7 @@ overload is built on internally — prefer the validated forms in new code).
 **Full example:** [`examples/03-json-api`](../examples/03-json-api) — `Json[T]`/`ServerResponse.json`/`IntoResponse` in a real REST CRUD service.
 
 - [routing.md](routing.md) — where `Handler`s get registered
+- [extractors.md](extractors.md) — `TypedRoute`/`*_typed`/`*_typed_h`, bare-type sugar, the OpenAPI connection
 - [middleware.md](middleware.md) — wrapping a `Handler`
 - [errors.md](errors.md) — `HttpError`'s own status/body mapping in full
 - [roadmap.md](roadmap.md) — the extractor arity-overload sugar (planned)

@@ -7,6 +7,7 @@ Start here: **[overview.md](overview.md)** — what Polaris is, a minimal server
 | [overview.md](overview.md) | Polaris in one page; relation to the `http` core package |
 | [routing.md](routing.md) | `Router`, path patterns `{name}`/`{*rest}`, `MethodRouter`, `nest`, fallbacks |
 | [handlers-response.md](handlers-response.md) | `ServerRequest`/`ServerResponse`, `IntoResponse`, typed extractors, `StatusCode` |
+| [extractors.md](extractors.md) | `FromRequest`/`FromPath`/`FromQuery`/`FromBody`, typed routes (`TypedRoute`/`*_typed`/`*_typed_h`), the OpenAPI connection |
 | [middleware.md](middleware.md) | writing and composing `Middleware`, layer ordering |
 | [batteries.md](batteries.md) | cors, compress, log, ratelimit |
 | [auth.md](auth.md) | Basic/Bearer/JWT, cookies, sessions |

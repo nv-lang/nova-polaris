@@ -54,7 +54,17 @@ test suite (a checker/codegen arity-overload mismatch, tracked upstream in
 the nova compiler, not something this package can work around locally).
 The low-level `Router.@get(path, Handler)` + manual per-extractor
 composition shown throughout this doc set remains the only registration
-path until that compiler gap closes.
+path *under these exact method names* until that compiler gap closes.
+
+**What already exists under a different name**: `Router.@post_typed_h[T
+FromRequest + Reflect](path, h fn(T) -> ServerResponse)` — a bare handler
+plus one type parameter, the same ergonomic destination as the sugar
+above, registered under a name that doesn't collide with `@post`'s own
+overload set (sidestepping the exact codegen gap this section describes).
+See [extractors.md](extractors.md#bare-sugar-registration-_typed_h) for the
+full writeup — it's a narrower, separately-named family (one method,
+`POST` only, one bundled type parameter), not the 0–4-extractor same-name
+overload sketched above.
 
 ## `Path[T]` rename
 
@@ -68,11 +78,20 @@ and not a behavior change.
 
 ## OpenAPI generation
 
-Not implemented. No `#[derive(OpenApi)]`/`utoipa`-equivalent exists yet —
-route/extractor/response shapes are not currently reflected into a spec
-document. If and when this lands, it will be documented here first, with a
-worked example, exactly like everything else in this doc set — no
-speculative surface is described in the meantime.
+**Implemented** (Plan 222.8 Ф.1–Ф.3) — this section previously said
+"not implemented"; that was stale. `std.reflect`'s `Reflect`/`TypeShape`
+describe a type's structural shape, [`TypedRoute`/`*_typed`/`*_typed_h`](extractors.md#typed-routes-typedroute--_typed)
+record it per route, `Router.introspect()` reports it, and
+[`src/openapi.nv`](../src/openapi.nv)'s `openapi_json`/`openapi_handler`
+render an OpenAPI 3.0 JSON document straight from those shapes — no
+intermediate schema type, no `#[derive(OpenApi)]`-equivalent macro. Full
+writeup: [extractors.md#connection-to-openapi](extractors.md#connection-to-openapi);
+worked example: [`examples/03-json-api`](../examples/03-json-api)'s
+`/openapi.json` route + its checked-in
+[`openapi.golden.json`](../examples/03-json-api/openapi.golden.json). A
+dedicated `openapi.md` page (parameters/requestBody/responses schema shape
+in full, `components/schemas` hoisting rules) doesn't exist yet — today the
+emitter's own doc-comments in `src/openapi.nv` are the detailed reference.
 
 ## Phase B: module split
 
@@ -122,6 +141,7 @@ already-started work). Neither is implemented.
 ## Related documents
 
 - [handlers-response.md](handlers-response.md) — today's extractor canon
+- [extractors.md](extractors.md) — `FromRequest`, typed routes, the OpenAPI connection
 - [auth.md](auth.md) — today's sessions skeleton
 - [serving.md](serving.md) — today's `BackgroundTasks`/`ServerPolicy`
 - [errors.md](errors.md) — today's error-handling canon

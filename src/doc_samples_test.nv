@@ -21,6 +21,7 @@ module polaris.doc_samples_test
 
 import polaris.{Router, get, post, ServerRequest, ServerResponse, Handler, Middleware, middleware}
 import polaris.{Json, PathParam, Query, Bytes, Text, Headers, Multipart}
+import polaris.{FromRequest, FromPath, FromQuery, FromBody, TypedRoute, openapi_handler}
 import polaris.{Bearer, BasicAuth, JwtAuth, JwtClaims, CookieJar}
 import polaris.{SessionStore, memory_session_store, SessionConfig, session, require_jwt}
 import polaris.{BackgroundTasks, StreamBody, sse_event, WebSocketUpgrade}
@@ -36,6 +37,7 @@ import polaris.middleware.ratelimit.{RateLimit, ratelimit}
 import polaris.{StatusCode, HttpError, SetCookie}
 import std.net.{TcpListener, TcpStream}
 import std.encoding.serde.{Serialize, Deserialize}
+import std.reflect.{Reflect, TypeShape}
 import std.testing.handlers as th
 
 // ── shared test helpers (mirrors router_test.nv/mux_test.nv's own shape —
@@ -296,6 +298,100 @@ test "handlers-response: multipart/form-data — fields and file uploads" {
     ro raw = "POST /upload HTTP/1.1\r\nHost: n\r\nContent-Type: multipart/form-data; boundary=${boundary}\r\nContent-Length: ${body.byte_len()}\r\n\r\n${body}".bytes()
     ro wire = serve_once(r, raw)
     assert(wire_str(wire).contains("name=nova has_file=true"))
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// extractors.md
+// ═══════════════════════════════════════════════════════════════════════
+
+// `FromPath`/`FromQuery`/`FromBody` — bare-type extraction sugar (Plan
+// 222.3): a type declares its OWN extraction source via one of these three
+// protocols, normally by forwarding straight to the matching wrapper
+// extractor's own `from_request`. Several bare types compose into ONE
+// bundle record via a hand-written `#impl(FromRequest)` — same shape as
+// `examples/03-json-api`'s `AddNoteReq`/`TodoIdParam`/`NoteQuery`/`NoteBody`.
+#impl(Serialize + Deserialize + Reflect)
+type NoteIdParam value { ro id int }
+
+#impl(Serialize + Deserialize + Reflect)
+type PinFlag value { ro pinned bool }
+
+#impl(Serialize + Deserialize + Reflect)
+type NoteBody value { ro text str }
+
+#impl(FromPath)
+fn NoteIdParam.from_path(req ServerRequest) -> Result[NoteIdParam, HttpError] =>
+    match PathParam[NoteIdParam].from_request(req) { Ok(p) => Ok(p.data()), Err(e) => Err(e) }
+
+#impl(FromQuery)
+fn PinFlag.from_query(req ServerRequest) -> Result[PinFlag, HttpError] =>
+    match Query[PinFlag].from_request(req) { Ok(q) => Ok(q.data()), Err(e) => Err(e) }
+
+#impl(FromBody)
+fn NoteBody.from_body(req ServerRequest) -> Result[NoteBody, HttpError] =>
+    match Json[NoteBody].from_request(req) { Ok(j) => Ok(j.data()), Err(e) => Err(e) }
+
+// One bundle record — each field names its OWN source via its OWN type.
+// The handler below receives ONE bare `AddNoteReq`, zero wrapper ceremony.
+type AddNoteReq value { ro id NoteIdParam, ro opts PinFlag, ro note NoteBody }
+
+#impl(FromRequest)
+fn AddNoteReq.from_request(req ServerRequest) -> Result[AddNoteReq, HttpError] {
+    Ok(AddNoteReq{
+        id: NoteIdParam.from_path(req)?,
+        opts: PinFlag.from_query(req)?,
+        note: NoteBody.from_body(req)?,
+    })
+}
+
+// Manual `#impl(Reflect)` — NOT auto-derived: auto-derive's field-walk
+// through a generic-wrapper field type (`PathParam[T]` etc. embedded as a
+// FIELD of another record) is a known compiler gap. The manual impl
+// mirrors exactly what auto-derive WOULD produce for a `{ data T }` struct,
+// same field name.
+#impl(Reflect)
+fn AddNoteReq.reflect() -> TypeShape => TypeShape.Record("AddNoteReq", [
+    ("id",   TypeShape.Record("PathParam", [("data", NoteIdParam.reflect())])),
+    ("opts", TypeShape.Record("Query",     [("data", PinFlag.reflect())])),
+    ("note", TypeShape.Record("Json",      [("data", NoteBody.reflect())])),
+])
+
+fn add_note(req AddNoteReq) -> ServerResponse =>
+    ServerResponse.text(StatusCode.OK, "id=${req.id.id} pinned=${req.opts.pinned} text=${req.note.text}")
+
+test "extractors: FromPath+FromQuery+FromBody bundle registered via bare-sugar post_typed_h; first Err short-circuits" {
+    mut r = Router.new()
+    r.post_typed_h[AddNoteReq]("/notes/{id}", add_note)!!
+
+    ro body = "{\"text\":\"hi\"}"
+    ro raw = "POST /notes/7?pinned=true HTTP/1.1\r\nHost: n\r\nContent-Type: application/json\r\nContent-Length: ${body.byte_len()}\r\n\r\n${body}".bytes()
+    assert(wire_str(serve_once(r, raw)).contains("id=7 pinned=true text=hi"))
+
+    // a non-numeric {id} fails the FIRST field's extractor (`NoteIdParam.from_path`)
+    // — `add_note` never runs, `PinFlag`/`NoteBody` are never even attempted.
+    ro bad = "POST /notes/nope?pinned=true HTTP/1.1\r\nHost: n\r\nContent-Type: application/json\r\nContent-Length: ${body.byte_len()}\r\n\r\n${body}".bytes()
+    assert(status_line(serve_once(r, bad)) == "HTTP/1.1 400 Bad Request")
+}
+
+test "extractors: TypedRoute + Router.@get_typed record shapes; Router.introspect() feeds openapi_handler" {
+    mut r = Router.new()
+    r.get_typed("/notes/{id}", TypedRoute{
+        handler: fn(req ServerRequest) -> ServerResponse {
+            match PathParam[NoteIdParam].from_request(req) {
+                Ok(p)  => ServerResponse.text(StatusCode.OK, "id=${p.data().id}")
+                Err(e) => e.into_response()
+            }
+        },
+        req_shape: Some(PathParam[NoteIdParam].reflect()),
+        resp_shape: Some(str.reflect()),
+    })!!
+    assert(wire_str(serve_once(r, get_req("/notes/9"))).contains("id=9"))
+
+    ro routes = r.introspect()
+    r.get("/openapi.json", openapi_handler(routes, "Notes API", "1.0.0"))!!
+    ro spec = wire_str(serve_once(r, get_req("/openapi.json")))
+    assert(spec.contains("\"openapi\":\"3.0.3\""))
+    assert(spec.contains("\"NoteIdParam\""))
 }
 
 // ═══════════════════════════════════════════════════════════════════════

@@ -7,6 +7,7 @@
 | [overview.ru.md](overview.ru.md) | Polaris на одной странице; связь с пакетом-ядром `http` |
 | [routing.ru.md](routing.ru.md) | `Router`, шаблоны пути `{name}`/`{*rest}`, `MethodRouter`, `nest`, fallback'и |
 | [handlers-response.ru.md](handlers-response.ru.md) | `ServerRequest`/`ServerResponse`, `IntoResponse`, типизированные экстракторы, `StatusCode` |
+| [extractors.ru.md](extractors.ru.md) | `FromRequest`/`FromPath`/`FromQuery`/`FromBody`, typed-маршруты (`TypedRoute`/`*_typed`/`*_typed_h`), связь с OpenAPI |
 | [middleware.ru.md](middleware.ru.md) | написание и композиция `Middleware`, порядок слоёв |
 | [batteries.ru.md](batteries.ru.md) | cors, compress, log, ratelimit |
 | [auth.ru.md](auth.ru.md) | Basic/Bearer/JWT, cookies, сессии |
