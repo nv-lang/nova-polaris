@@ -11,12 +11,7 @@ import polaris.net.{ServerPolicy}
 import polaris.serve.{serve_router}
 import std.net.{TcpListener}
 
-fn site() -> EmbeddedDir =>
-    EmbeddedDir.new([
-        EmbeddedEntry { path: "index.html", data: "<h1>Polaris static-site example</h1><p>Try /assets/style.css or /assets/notes/hello.txt</p>".bytes() },
-        EmbeddedEntry { path: "notes/hello.txt", data: "hello from an embedded, nested asset".bytes() },
-        EmbeddedEntry { path: "style.css", data: "body { font-family: sans-serif; }".bytes() },
-    ])
+fn site() -> EmbeddedDir => embed_dir("../assets")
 
 fn static_config() -> Static {
     mut cfg = Static.new()
@@ -32,10 +27,10 @@ fn build_router() -> Router =>
         // trailing-`/` request under `/assets/`.
         .get("/", fn(req ServerRequest) -> ServerResponse =>
             serve_path(site(), static_config(), "", req))!!
-        // `static_handler(fs, cfg, param)` (the one-call ready-`Handler` helper
-        // documented in static-files.md) currently hits a codegen gap for this
-        // package's own `EmbeddedDir` (`out of memory` on the very first served
-        // asset — isolated during this wave, filed upstream); calling
+        // №109: `static_handler(fs, cfg, param)` (the one-call ready-`Handler`
+        // helper documented in static-files.md) currently hits a codegen gap for
+        // this package's own `EmbeddedDir` (`out of memory` on the very first
+        // served asset — isolated during this wave, filed upstream); calling
         // `serve_path` directly from a plain closure, the same shape the root
         // route above already uses, is unaffected and is exactly what
         // `static_handler` does internally (see its own one-line body in
