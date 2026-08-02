@@ -19,6 +19,7 @@ module main
 import polaris.{Router, ServerRequest, ServerResponse, StatusCode, Log}
 import polaris.serve.{serve_tls}
 import tls.{ServerConfig}
+import std.io.{println}
 
 fn server_cert() -> []u8 => embed("../certs/localhost_cert.pem")
 
@@ -36,5 +37,6 @@ fn build_router() -> Router =>
 fn main() Net Time Detach Log -> () {
     ro app = build_router()
     ro cfg = ServerConfig.new(server_cert(), server_key())
+    println("listening on https://127.0.0.1:18093 — press Ctrl+C to stop (self-signed cert: curl -k / browser warning is expected)")
     ro _ = serve_tls("0.0.0.0:18093", cfg, app)
 }

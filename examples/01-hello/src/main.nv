@@ -9,6 +9,7 @@ import polaris.net.{ServerPolicy}
 import polaris.serve.{serve_router}
 import polaris.{StatusCode}
 import std.net.{TcpListener}
+import std.io.{println}
 
 fn build_router() -> Router =>
     Router.new()
@@ -25,5 +26,6 @@ fn build_router() -> Router =>
 fn main() Net Time Detach -> () {
     ro app = build_router()
     consume listener = TcpListener.bind("0.0.0.0:18082")!!
+    println("listening on http://127.0.0.1:18082 — press Ctrl+C to stop")
     serve_router(listener, app, ServerPolicy.new())
 }

@@ -12,6 +12,7 @@ import polaris.middleware.log.{AccessLog, logger}
 import polaris.middleware.ratelimit.{RateLimit, ratelimit}
 import polaris.{StatusCode}
 import std.net.{TcpListener}
+import std.io.{println}
 
 // ── a custom middleware, batteries style: one flat closure, no nested
 //    fn(next) -> Handler ceremony ────────────────────────────────────────
@@ -59,5 +60,6 @@ fn build_router() Time -> Router {
 fn main() Net Time Detach -> () {
     ro app = build_router()
     consume listener = TcpListener.bind("0.0.0.0:18085")!!
+    println("listening on http://127.0.0.1:18085 — press Ctrl+C to stop")
     serve_router(listener, app, ServerPolicy.new())
 }

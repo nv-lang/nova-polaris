@@ -17,6 +17,7 @@ import std.net.{TcpListener}
 import std.encoding.serde.{Serialize, Deserialize}
 import std.encoding.json.{JsonValue}
 import std.crypto.jwt.{Jwt}
+import std.io.{println}
 
 // ── domain ────────────────────────────────────────────────────────────
 
@@ -141,5 +142,6 @@ fn build_router() Time -> Router {
 fn main() Net Time Detach -> () {
     ro app = build_router()
     consume listener = TcpListener.bind("0.0.0.0:18091")!!
+    println("listening on http://127.0.0.1:18091 — press Ctrl+C to stop")
     serve_router(listener, app, ServerPolicy.new())
 }

@@ -65,5 +65,6 @@ fn build_router() -> Router {
 fn main() Net Time Detach -> () {
     ro app = build_router()
     consume listener = TcpListener.bind("0.0.0.0:18083")!!
+    println("listening on http://127.0.0.1:18083 — press Ctrl+C to stop")
     serve_router(listener, app, ServerPolicy.new())
 }
