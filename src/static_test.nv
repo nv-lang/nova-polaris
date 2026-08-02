@@ -149,6 +149,36 @@ test "static: cache_control config lands on 200" {
     assert(hdr(resp, "cache-control") == "public, max-age=60")
 }
 
+// [M-polaris-static-embeddeddir-oom] (bug-sweep №109, 2026-08-02): TWO
+// chained `.get(...)!!.get(...)!!` registrations, BOTH via `static_handler`
+// on a real `EmbeddedDir` — the reported shape (`nova: out of memory`, a
+// GC-request corrupted to ~1.8-2.8 TiB, non-deterministic run to run). Root
+// cause: `static_handler`'s own `ro c = cfg` ("local copy before capture")
+// captured a bare POINTER-TO-CALLER-STACK alias (the value-record by-ref
+// call ABI) into the escaping `Handler` closure instead of a heap-owned
+// copy — a dangling read once the declaring call chain unwound, landing on
+// whatever garbage now occupied that stack slot at dispatch time. Fixed in
+// the compiler's closure free-var capture classification (emit_c.rs;
+// `is_value_struct_ptr` free vars now go through the SAME deref-and-heap-
+// box path as a `ref_params` capture, regardless of the generic-fn `Plan
+// 172.14` by-ref pre-pass gap). Two routes (not one) exercises the ORIGINAL
+// live repro shape exactly.
+fn double_routed() -> Router {
+    mut r = Router.new()
+    r.get("/x/{*path}", static_handler(fixture(), Static.new(), "path"))!!
+    r.get("/y/{*path}", static_handler(fixture(), Static.new(), "path"))!!
+    r
+}
+
+test "static: TWO chained static_handler() registrations both serve correctly (№109 regression)" {
+    ro rx = route_once(double_routed(), get_req("/x/a.txt", []))
+    assert(rx.status_code() == 200)
+    assert(body_str(rx) == "hello world")
+    ro ry = route_once(double_routed(), get_req("/y/docs/guide.md", []))
+    assert(ry.status_code() == 200)
+    assert(body_str(ry) == "# guide")
+}
+
 // Minimal ServerRequest for direct serve_path calls (no conditional headers).
 // Built by parsing a real GET through the shared wire parser — keeps this
 // module free of ServerRequest construction details.

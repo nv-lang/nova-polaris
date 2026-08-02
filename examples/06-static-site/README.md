@@ -43,16 +43,6 @@ curl -o /dev/null -w '%{http_code}\n' http://localhost:18087/assets/missing.txt 
 - Add a file under `assets/` — it is picked up by `embed_dir` on the next
   build, no `EmbeddedEntry` list to maintain.
 
-## A gap this example works around
-
-`polaris.static.static_handler(fs, cfg, param)` — the one-call ready-`Handler`
-helper `docs/static-files.md` documents — currently hits a codegen gap for
-this package's own `EmbeddedDir` (`nova: out of memory` on the very first
-served asset — №109). `/assets/{*path}` here calls `serve_path` directly from
-a plain closure instead — the exact same shape the `/` route already uses,
-and exactly what `static_handler` does internally (see its one-line body in
-`src/static.nv`) — unaffected by the gap. Filed upstream.
-
 ## Related documentation
 
 - [`docs/static-files.md`](../../docs/static-files.md) — `EmbeddedDir`, ETag/Range/index rules, safety
