@@ -1,6 +1,6 @@
 # Примеры Polaris
 
-Десять рабочих приложений — от простого к сложному, каждое в своём
+Двенадцать рабочих приложений — от простого к сложному, каждое в своём
 самостоятельном пакете с зависимостью на `polaris` (и `http` — ради
 `StatusCode`/`HttpError`) по локальному пути. Каждый пример собирается
 `--strict-effects` и реально запускается: старт → `curl` → останов — см.
@@ -22,6 +22,7 @@
 | [08](08-websocket-echo/) | `websocket-echo` | `WebSocketUpgrade`, `WebSocket.with_limit`, echo-цикл | axum `websockets` |
 | [09](09-graceful/) | `graceful` | `ServerPolicy` (лимиты/admission), `BackgroundTasks`, recover-500 | axum `graceful-shutdown` + `key-value-store` |
 | [10](10-mini-service/) | `mini-service` | json-api + auth + стек middleware + static + policy — всё вместе | RealWorld (Conduit) — урезанный профиль |
+| [12](12-https/) | `https` | `serve_tls` + самоподписанный серт: TLS-терминация перед `Router` | собственный `examples/tls/echo_server.nv` из nova-tls + HTTP сверху |
 
 ## Собрать один пример
 
@@ -42,7 +43,7 @@ nova build --strict-effects src/main.nv
 ```nova
 fn main() Net Time Detach -> () {
     ro app = build_router()
-    consume listener = TcpListener.bind("0.0.0.0:PORT".to_socket_addr()!!)!!
+    consume listener = TcpListener.bind("0.0.0.0:PORT")!!
     serve_router(listener, app, ServerPolicy.new())
 }
 ```
@@ -73,5 +74,9 @@ echo` использует ту же самую форму — hook `WebSocketUp
 | 08-websocket-echo | 18089 |
 | 09-graceful | 18090 |
 | 10-mini-service | 18091 |
+| 12-https | 18093 |
+
+`12-https` не следует общей форме `main()` выше (`serve_tls`, не
+`serve_router`/`ServerPolicy`) — почему, см. README самого примера.
 
 [English](README.md)

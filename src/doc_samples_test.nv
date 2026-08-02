@@ -34,7 +34,7 @@ import polaris.middleware.compress.{Compression, compression}
 import polaris.middleware.log.{AccessLog, logger}
 import polaris.middleware.ratelimit.{RateLimit, ratelimit}
 import polaris.{StatusCode, HttpError, SetCookie}
-import std.net.{TcpListener, TcpStream, SocketAddr}
+import std.net.{TcpListener, TcpStream}
 import std.encoding.serde.{Serialize, Deserialize}
 import std.testing.handlers as th
 
@@ -89,7 +89,7 @@ fn overview_main() Net Time Detach -> () {
         ServerResponse.text(StatusCode.OK, "hello, ${name}")
     })!!
 
-    consume listener = TcpListener.bind("0.0.0.0:8080".to_socket_addr()!!)!!
+    consume listener = TcpListener.bind("0.0.0.0:8080")!!
     serve_router(listener, app, ServerPolicy.new())
 }
 

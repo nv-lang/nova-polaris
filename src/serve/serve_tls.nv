@@ -1,0 +1,105 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// nova-polaris: serve_tls.nv — TLS entry points, `Router`-taking sugar
+// (A-V13, owner decision 2026-08-02: "tls для поляриса до релиза" — HTTPS
+// support before release). Peer of `serve.nv` (same `polaris.serve`
+// module) — same "third module, allowed to import BOTH layers" rationale
+// as that file's own banner: this file additionally imports `tls`
+// (nova-tls, external package, `../../nova.toml` `[dependencies]`).
+//
+// API SHAPE (brief-mandated choice, reported to the integrator): a
+// SEPARATE `serve_tls(addr, tls_cfg, router)` entry point, not a TLS
+// option/flag bolted onto the existing `serve_addr`/`serve_router` —
+// mirrors `serve_addr`'s OWN signature shape (`addr str`, `Router`, one
+// more config value) with the config value swapped for `tls.ServerConfig`
+// in place of `ServerPolicy`. WHY NOT one flag on the existing entry
+// points: `serve_addr` takes a `ServerPolicy` (keep-alive/deadlines/
+// body-cap/chunked-decode, `net/policy.nv`) and drives the FULL governed
+// loop (`serve_router` -> `serve` -> `serve_connection` -> `read_one_request`)
+// — every one of those is `TcpStream`-typed internally (`s.share()`
+// deadline-racing, chunked-body decode, ...). Making that whole stack
+// generic over the transport (TLS vs plain) is a real, invasive refactor —
+// out of scope for this window (`serve.nv`'s own banner already catalogs
+// FOUR distinct C-codegen defects hit wiring a comparatively SIMPLER
+// graceful-shutdown shape onto this exact loop). A separate, deliberately
+// SMALLER entry point — one request per TLS connection (`Connection:
+// close`, `handle_connection_router`'s own shape, not `serve_router`'s
+// keep-alive one), no `ServerPolicy`/admission-gate — ships something real
+// (TLS handshake + routed HTTP/1.1 request/response) without that
+// refactor. Widening this to keep-alive+`ServerPolicy` parity is a
+// follow-up, not attempted here.
+//
+// Handshake failures: `TlsStream.accept` already closes the underlying
+// `TcpStream` internally on ANY error (`nova-tls/src/server.nv`'s own
+// doc-comment) — this file additionally logs a `warn` line (`Log.warn`,
+// ambient raw op, same effect `net/serve.nv`'s own `RejectLog` uses for
+// connection-level logging) so a handshake failure is observable, then
+// keeps looping — never crashes the server, never reaches the router.
+//
+// Graceful shutdown: same gap as `serve()` itself (see that file's own
+// banner, "`serve()` has no shutdown knob") — this does not regress
+// anything that existed before this window.
+
+module polaris.serve
+
+import std.net.{TcpListener, NetError}
+import tls.{TlsStream, ServerConfig, TlsError}
+import polaris.{Router, router_callback, Log}
+import polaris.net.{handle_connection_tls}
+
+/// `handle_connection_router`, but over an already TLS-handshaked
+/// `TlsStream` (thin sugar over `handle_connection_tls`, mirrors that
+/// function's own plaintext counterpart 1:1). Single-shot `Connection:
+/// close`, one request per connection — for a full accept loop that also
+/// performs the handshake, use `serve_tls` instead.
+#stable(since = "0.1")
+export fn handle_connection_router_tls(consume stream TlsStream, router Router) Net -> Result[(), TlsError] =>
+    handle_connection_tls(stream, router_callback(router))
+
+/// `serve_addr`, but over TLS — see this file's own banner for the API
+/// shape rationale. Binds `addr`, then for EACH accepted `TcpStream`
+/// performs a TLS server handshake (`TlsStream.accept`, `tls_cfg`) BEFORE
+/// ever reaching the router: a handshake failure (bad ClientHello, cert
+/// mismatch, ALPN mismatch, ...) closes the connection and logs a `warn`
+/// line — it does NOT crash the server, and the router never sees a byte
+/// of that connection. A malformed listen address or a bind failure on
+/// `addr` itself is returned as `Err`, never a panic (same contract as
+/// `serve_addr`).
+///
+/// Accept-loop shape: canon `examples/flagship/aggregator/src/main.nv`'s
+/// own accept loop (owner review, 2026-08-02), NOT `net/serve.nv`'s own
+/// `serve()` (which deliberately backs off + keeps looping on an accept
+/// error — a different, hardened, `ServerPolicy`-governed shape out of
+/// scope here, see this file's own banner). `Err(_) => { running = false }`
+/// ends the loop the same way `lst.accept()` erroring ends the flagship's:
+/// an accept error is, today, always "the listener is gone" (closed by the
+/// OS or by whoever owned `addr`'s socket) — there is no separate
+/// stop-signal plumbed into this fn (same gap `serve()` itself documents,
+/// "no shutdown knob"), so this IS the shutdown path available right now:
+/// close/drop the listener elsewhere and this loop exits cleanly instead of
+/// retrying forever against a dead socket.
+#stable(since = "0.1")
+export fn serve_tls(addr str, tls_cfg ServerConfig, router Router) Net Time Detach Log -> Result[(), NetError] {
+    ro sock = addr.to_socket_addr()?
+    consume listener = TcpListener.bind(sock)?
+    ro handler = router_callback(router)
+    mut running = true
+    while running {
+        match listener.accept() {
+            Ok(consume stream) => {
+                detach consume stream {
+                    match TlsStream.accept(stream, tls_cfg) {
+                        Ok(consume tls_stream) => {
+                            ro _ = handle_connection_tls(tls_stream, handler)
+                        }
+                        Err(e) => {
+                            Log.warn("tls handshake failed: ${e}")
+                        }
+                    }
+                }
+            }
+            Err(_) => { running = false }
+        }
+    }
+    listener.close()
+    Ok(())
+}

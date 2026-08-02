@@ -1,0 +1,132 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// nova-polaris: servernet_tls.nv — TLS counterpart of `servernet.nv`'s own
+// `handle_connection` (A-V13, owner decision 2026-08-02: "tls для
+// поляриса до релиза"). Same single-shot `Connection: close` shape, same
+// module (`polaris.net` folder-module peer — reuses `run_background`/
+// `dcrlf`/`content_length_of` directly, no import needed, D78 peer
+// visibility). The ONLY structural difference from `servernet.nv`'s own
+// `handle_connection`/`write_streaming`/`write_stream_chunks`/
+// `read_request` is the transport: `TlsStream` (`nova-tls`) instead of
+// `TcpStream` — its `@read_bytes`/`@write_all`/`@close` surface mirrors
+// `TcpStream`'s 1:1 (see `nova/examples/tls/echo_server.nv`'s own comment:
+// "a drop-in encrypted replacement, not a parallel API to relearn"), so
+// every body below is that file's plaintext counterpart with the parameter
+// type swapped and the error type following it (`TlsError`, not
+// `NetError` — `TlsStream`'s own I/O methods return `Result[_, TlsError]`,
+// `nova-tls/src/stream.nv`).
+//
+// Kept as SEPARATE, explicitly `_tls`-suffixed functions rather than
+// same-name overloads of `handle_connection`/`read_request`/etc — this
+// package's own `net/serve.nv`/`net/policy.nv` document a long tail of
+// exotic C-codegen defects hit wiring comparatively simpler shapes;
+// distinct names keep the (untested, for this exact shape) overload-
+// resolution path out of the picture entirely, at the cost of the small
+// duplication below.
+//
+// NOT wired into the keep-alive/`ServerPolicy` governed loop
+// (`net/serve.nv`'s `serve`/`serve_connection`/`read_one_request`) — those
+// are ALL `TcpStream`-typed internally (deadline-racing via `s.share()`,
+// chunked/body-cap decode) and duplicating that whole stack for
+// `TlsStream` is out of scope for this window — see `serve/serve_tls.nv`'s
+// own banner for the scope cut and the follow-up marker.
+
+module polaris.net
+
+import tls.{TlsStream, TlsError}
+import polaris.{ServerResponse, serialize_response}
+import polaris.{serialize_response_head, encode_chunk, encode_chunk_end}
+
+/// `servernet.handle_connection`, but over an already TLS-handshaked
+/// `TlsStream` — see this file's own banner. One request per connection
+/// (`Connection: close`); `serve/serve_tls.nv`'s `handle_connection_router_tls`
+/// is the `Router`-taking convenience wrapper most callers actually want.
+#stable(since = "0.1")
+export fn handle_connection_tls(consume stream TlsStream, handler fn([]u8) -> ServerResponse) Net -> Result[(), TlsError] {
+    ro raw = read_request_tls(stream)
+    ro resp = handler(raw)
+    ro bg = resp.take_background()
+    if resp.is_streaming() {
+        ro r = write_streaming_tls(stream, resp)
+        // Not a swallow: the write outcome IS returned below (`r`) — this
+        // match only decides whether `run_background` also runs on success
+        // (mirrors `servernet.handle_connection`'s own identical shape).
+        match r {
+            Ok(_)  => run_background(bg)
+            Err(_) => ()
+        }
+        r
+    } else {
+        match stream.write_all(serialize_response(resp)) {
+            Ok(_)  => { stream.close(); run_background(bg); Ok(()) }
+            Err(e) => { stream.close(); Err(e) }
+        }
+    }
+}
+
+// `servernet.write_streaming`, but over `TlsStream` — see that fn's own
+// doc-comment for why the fallible head-write is split into its own
+// function (D131 consume-flow analysis, tail-position requirement).
+fn write_streaming_tls(consume stream TlsStream, resp ServerResponse) Net -> Result[(), TlsError] {
+    match stream.write_all(serialize_response_head(resp)) {
+        Ok(_)  => write_stream_chunks_tls(stream, resp)
+        Err(e) => { stream.close(); Err(e) }
+    }
+}
+
+// `servernet.write_stream_chunks`, but over `TlsStream`.
+fn write_stream_chunks_tls(consume stream TlsStream, resp ServerResponse) Net -> Result[(), TlsError] {
+    match resp.take_stream() {
+        None => { stream.close(); Ok(()) }             // unreachable: caller checked @is_streaming()
+        Some(mut producer) => {
+            mut running = true
+            mut result Result[(), TlsError] = Ok(())
+            while running {
+                match producer.next_chunk() {
+                    Some(chunk) => {
+                        match stream.write_all(encode_chunk(chunk)) {
+                            Ok(_)  => ()
+                            Err(e) => { result = Err(e); running = false }
+                        }
+                    }
+                    None => {
+                        match stream.write_all(encode_chunk_end()) {
+                            Ok(_)  => ()
+                            Err(e) => { result = Err(e) }
+                        }
+                        running = false
+                    }
+                }
+            }
+            stream.close()
+            result
+        }
+    }
+}
+
+// `servernet.read_request`, but over `TlsStream` — reuses `dcrlf`/
+// `content_length_of` directly (same-folder-module peer visibility, D78;
+// defined in `servernet.nv`, this file's own sibling).
+fn read_request_tls(mut s TlsStream) Net -> []u8 {
+    mut acc []u8 = []u8.new()
+    mut header_end = -1
+    mut reading = true
+    while reading && header_end < 0 {
+        match s.read_bytes(65536) {
+            Ok(chunk) => {
+                if chunk.len() == 0 { reading = false } else { acc.append(chunk); header_end = dcrlf(acc) }
+            }
+            Err(_) => { reading = false }
+        }
+    }
+    if header_end < 0 { return acc }
+    ro body_start = header_end + 4
+    ro need = content_length_of(acc, header_end)
+    mut more = true
+    while more && (acc.len() - body_start) < need {
+        match s.read_bytes(65536) {
+            Ok(chunk) => { if chunk.len() == 0 { more = false } else { acc.append(chunk) } }
+            Err(_) => { more = false }
+        }
+    }
+    acc
+}

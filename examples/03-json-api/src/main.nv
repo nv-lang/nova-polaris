@@ -12,7 +12,7 @@ import polaris.net.{ServerPolicy}
 import polaris.serve.{serve_router}
 import polaris.{StatusCode, HttpError}
 import polaris.{openapi_handler}
-import std.net.{TcpListener, SocketAddr}
+import std.net.{TcpListener}
 import std.encoding.serde.{Serialize, Deserialize}
 import std.reflect.{Reflect, TypeShape}
 
@@ -237,6 +237,6 @@ fn build_router() -> Router {
 /// its own fiber, so a blocking `serve_router` call works directly.
 fn main() Net Time Detach -> () {
     ro app = build_router()
-    consume listener = TcpListener.bind("0.0.0.0:18084".to_socket_addr()!!)!!
+    consume listener = TcpListener.bind("0.0.0.0:18084")!!
     serve_router(listener, app, ServerPolicy.new())
 }

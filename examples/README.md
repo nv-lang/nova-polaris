@@ -1,6 +1,6 @@
 # Polaris examples
 
-Ten runnable applications, simplest to most complete, each its own
+Twelve runnable applications, simplest to most complete, each its own
 self-contained package depending on `polaris` (and `http` for
 `StatusCode`/`HttpError`) by local path. Each one builds `--strict-effects`
 and actually runs — start it, hit it with `curl`, stop it — see
@@ -22,6 +22,7 @@ starting point.
 | [08](08-websocket-echo/) | `websocket-echo` | `WebSocketUpgrade`, `WebSocket.with_limit`, echo loop | axum `websockets` |
 | [09](09-graceful/) | `graceful` | `ServerPolicy` limits/admission, `BackgroundTasks`, recover-500 | axum `graceful-shutdown` + `key-value-store` |
 | [10](10-mini-service/) | `mini-service` | json-api + auth + middleware stack + static + policy, one service | RealWorld (Conduit) — trimmed profile |
+| [12](12-https/) | `https` | `serve_tls` + a self-signed cert: TLS termination in front of a `Router` | nova-tls's own `examples/tls/echo_server.nv`, with HTTP on top |
 
 ## Building one
 
@@ -42,7 +43,7 @@ every doc page teaches (`../docs/overview.md#minimal-server`,
 ```nova
 fn main() Net Time Detach -> () {
     ro app = build_router()
-    consume listener = TcpListener.bind("0.0.0.0:PORT".to_socket_addr()!!)!!
+    consume listener = TcpListener.bind("0.0.0.0:PORT")!!
     serve_router(listener, app, ServerPolicy.new())
 }
 ```
@@ -73,5 +74,9 @@ Each example binds a distinct, non-standard port (`18081 + NN`) so
 | 08-websocket-echo | 18089 |
 | 09-graceful | 18090 |
 | 10-mini-service | 18091 |
+| 12-https | 18093 |
+
+`12-https` does not follow the shared `main()` shape above (`serve_tls`, not
+`serve_router`/`ServerPolicy`) — see that example's own README for why.
 
 [Русский](README.ru.md)

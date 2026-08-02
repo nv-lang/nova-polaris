@@ -1,0 +1,10 @@
+# nova.toml — Polaris example 12: https — TLS termination in front of a Router.
+
+[package]
+name = "polaris-example-12-https"
+version = "0.1.0"
+description = "Polaris example 12 — serve_tls + a self-signed localhost cert: one hello route over HTTPS"
+
+[dependencies]
+polaris = { path = "../.." }
+tls = { git = "https://github.com/nv-lang/nova-tls", version = "0.1" }
