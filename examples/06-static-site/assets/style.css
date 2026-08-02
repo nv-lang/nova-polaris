@@ -1,0 +1,30 @@
+:root {
+    --nova-pink: #e8537a;
+}
+
+body {
+    margin: 0;
+    font-family: "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
+    color: #2c2c2c;
+    background: #faf7f5;
+}
+
+main {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    text-align: center;
+    padding: 1rem;
+}
+
+h1 {
+    color: var(--nova-pink);
+    margin: 0.5rem 0;
+}
+
+img {
+    width: 64px;
+    height: 64px;
+}
