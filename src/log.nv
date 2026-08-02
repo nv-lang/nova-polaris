@@ -223,7 +223,7 @@ export fn capture_log(mut lines []str) -> Effect[Log] {
     }
 }
 
-fn capture_push(lock Mutex, mut lines []str, msg str) {
-    consume g = lock.lock()
+fn capture_push(mutex Mutex, mut lines []str, msg str) {
+    consume g = mutex.lock()
     lines.push(msg)
 }

@@ -68,7 +68,7 @@ import std.collections.hashmap.{HashMap}
 /// fields — every copy of a `MetricsRegistry` aliases the SAME table.
 #stable(since = "0.1")
 export type MetricsRegistry value priv {
-    lock     Mutex
+    mutex     Mutex
     counters HashMap[str, int]
     gauges   HashMap[str, f64]
 }
@@ -76,7 +76,7 @@ export type MetricsRegistry value priv {
 /// Empty registry — no counters/gauges recorded yet.
 #stable(since = "0.1")
 export fn MetricsRegistry.new() -> MetricsRegistry => {
-    lock: Mutex.new(),
+    mutex: Mutex.new(),
     counters: HashMap[str, int].new(),
     gauges: HashMap[str, f64].new(),
 }
@@ -84,7 +84,7 @@ export fn MetricsRegistry.new() -> MetricsRegistry => {
 /// Current value of counter `name` (0 if never recorded).
 #stable(since = "0.1")
 export fn MetricsRegistry @counter_value(name str) -> int {
-    consume g = @lock.lock()
+    consume g = @mutex.lock()
     ro v = @counters.get(name) ?? 0
     v
 }
@@ -92,7 +92,7 @@ export fn MetricsRegistry @counter_value(name str) -> int {
 /// Current value of gauge `name` (0.0 if never recorded).
 #stable(since = "0.1")
 export fn MetricsRegistry @gauge_value(name str) -> f64 {
-    consume g = @lock.lock()
+    consume g = @mutex.lock()
     ro v = @gauges.get(name) ?? 0.0
     v
 }
@@ -100,7 +100,7 @@ export fn MetricsRegistry @gauge_value(name str) -> f64 {
 /// Add `delta` to counter `name` (created at 0 on first use).
 #stable(since = "0.1")
 export fn MetricsRegistry @record_counter(name str, delta int) {
-    consume g = @lock.lock()
+    consume g = @mutex.lock()
     ro prev = @counters.get(name) ?? 0
     ro _ = @counters.insert(name, prev + delta)
 }
@@ -108,7 +108,7 @@ export fn MetricsRegistry @record_counter(name str, delta int) {
 /// Overwrite gauge `name` (last-write-wins).
 #stable(since = "0.1")
 export fn MetricsRegistry @record_gauge(name str, v f64) {
-    consume g = @lock.lock()
+    consume g = @mutex.lock()
     ro _ = @gauges.insert(name, v)
 }
 
@@ -117,7 +117,7 @@ export fn MetricsRegistry @record_gauge(name str, v f64) {
 /// — V1 attaches no static per-metric description.
 #stable(since = "0.1")
 export fn MetricsRegistry @render_prometheus() -> str {
-    consume g = @lock.lock()
+    consume g = @mutex.lock()
     consume sb = StringBuilder.new()
     for (name, n) in @counters.iter() {
         sb.append("# TYPE ${name} counter

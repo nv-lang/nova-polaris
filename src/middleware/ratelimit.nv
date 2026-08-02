@@ -92,19 +92,19 @@ export fn ratelimit(cfg RateLimit) Time -> Middleware => cfg.middleware()
 // through ONE lock. Value type over reference-semantics fields (`Mutex`/
 // `HashMap`) — every copy aliases the SAME table.
 type BucketTable value priv {
-    lock    Mutex
+    mutex    Mutex
     buckets HashMap[str, TokenBucket]
 }
 
 fn BucketTable.new() -> BucketTable =>
-    { lock: Mutex.new(), buckets: HashMap[str, TokenBucket].new() }
+    { mutex: Mutex.new(), buckets: HashMap[str, TokenBucket].new() }
 
 // Get-or-create the bucket for `key` under the table's lock; the returned
 // `TokenBucket` handle is UNLOCKED (see file banner — `@acquire`'s own
 // per-bucket ±1-token race is the pre-existing, accepted simplification,
 // unrelated to the table-corruption bug this Mutex closes).
 fn BucketTable @bucket_for(key str, capacity int, per_sec f64) Time -> TokenBucket {
-    consume g = @lock.lock()
+    consume g = @mutex.lock()
     ro b = match @buckets.get(key) {
         Some(existing) => existing
         None => {
