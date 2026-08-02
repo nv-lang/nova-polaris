@@ -1,10 +1,21 @@
 # 06 — static-site
 
-Встроенные статические файлы (`EmbeddedDir`, байты запечены прямо в
-бинарь), резолв index-файла на корне, `Cache-Control` на каждый ответ и
-content-based ETag.
+Встроенные статические файлы (`embed_dir("../assets")` — целая папка
+запекается в бинарь как `EmbeddedDir`), резолв index-файла на корне,
+`Cache-Control` на каждый ответ и content-based ETag.
 
 По мотивам: `static-file-server`-пример axum.
+
+## Раскладка
+
+```
+assets/
+  index.html   # отдаётся на "/"
+  style.css    # отдаётся на "/assets/style.css"
+  logo.png     # отдаётся на "/assets/logo.png" (32x32, сгенерирован скриптом
+               # на стандартной библиотеке python zlib+struct, закоммичен как настоящий PNG)
+src/main.nv    # `fn site() -> EmbeddedDir => embed_dir("../assets")`
+```
 
 ## Запуск
 
@@ -16,7 +27,7 @@ nova build --strict-effects src/main.nv
 ```sh
 curl http://localhost:18087/                       # содержимое index.html
 curl -D - http://localhost:18087/assets/style.css   # 200, ETag, Cache-Control, content-type: text/css
-curl http://localhost:18087/assets/notes/hello.txt  # вложенный файл
+curl http://localhost:18087/assets/logo.png         # настоящий 32x32 PNG, content-type: image/png
 curl -o /dev/null -w '%{http_code}\n' http://localhost:18087/assets/missing.txt   # 404
 ```
 
@@ -29,17 +40,19 @@ curl -o /dev/null -w '%{http_code}\n' http://localhost:18087/assets/missing.txt 
 - Замени `EmbeddedDir` на `DirFs` (настоящая директория под эффектом `Fs`,
   полезно для dev live-reload) — см. doc-комментарий модуля в
   [`src/static.nv`](../../src/static.nv).
+- Положи файл в `assets/` — `embed_dir` подхватит его на следующей сборке,
+  ручной список `EmbeddedEntry` поддерживать не нужно.
 
 ## Пробел, который этот пример обходит
 
 `polaris.static.static_handler(fs, cfg, param)` — хелпер «готовый Handler
 одним вызовом», описанный в `docs/static-files.md` — сейчас упирается в
 пробел кодогена для собственного `EmbeddedDir` этого пакета (`nova: out of
-memory` уже на первом отданном файле, изолировано в этой волне).
-`/assets/{*path}` здесь вызывает `serve_path` напрямую из обычного
-замыкания — точно та же форма, что уже использует маршрут `/`, и именно то,
-что `static_handler` делает внутри (см. его однострочное тело в
-`src/static.nv`) — пробел его не задевает. Заведено выше по стеку.
+memory` уже на первом отданном файле — №109). `/assets/{*path}` здесь
+вызывает `serve_path` напрямую из обычного замыкания — точно та же форма,
+что уже использует маршрут `/`, и именно то, что `static_handler` делает
+внутри (см. его однострочное тело в `src/static.nv`) — пробел его не
+задевает. Заведено выше по стеку.
 
 ## Связанная документация
 
