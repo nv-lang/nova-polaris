@@ -44,16 +44,20 @@
 
 - `./nova.sh test src --strict-effects` (компилятор
   `d:/Sources/nv-lang/nova/nova-cli/target/release/nova.exe`) — канон
-  37/0/19. Финальный чистый прогон (без соседства чужого процесса на
-  машине) — **PASS: 37 FAIL: 0 SKIP: 19**, `src/doc_samples_test` PASS
-  (176.6s) — новые сниппеты компилируются и проходят. Более ранние прогоны
-  этого же окна показали единичные транзиентные FAIL/TIMEOUT на НЕТРОНУТЫХ
-  файлах (`server_serve` codegen-fail на файловой блокировке Windows —
-  перепригнан изолированно, PASS; `background`/`metrics_test` TIMEOUT под
-  нагрузкой) — на машине параллельно шла ДРУГАЯ сессия
-  (`nova-p152\...\nova.exe test src`, подтверждено через
-  `Get-CimInstance Win32_Process`), не моя правка; финальный прогон это
-  подтверждает (чисто).
+  37/0/19 был снят ДО ребейза на свежий `main`. На `master` (до
+  переименования в `main`, до слияния `p-polaris-tls`/`p-06-embeddir`) —
+  **PASS: 37 FAIL: 0 SKIP: 19**, `src/doc_samples_test` PASS (176.6s/241s/
+  286s — три прогона подряд). После ребейза на `main` (файловый состав
+  пакета изменился слиянием TLS/embed_dir-волн) — **PASS: 37 FAIL: 0
+  SKIP: 18**, `src/doc_samples_test` PASS (210.8s) — новые сниппеты
+  компилируются и проходят на актуальном `main`, ноль отказов. Более
+  ранние прогоны этого же окна показали единичные транзиентные
+  FAIL/TIMEOUT на НЕТРОНУТЫХ файлах (`server_serve` codegen-fail на
+  файловой блокировке Windows — перепригнан изолированно, PASS;
+  `background`/`metrics_test` TIMEOUT под нагрузкой) — на машине
+  параллельно шла ДРУГАЯ сессия (`nova-p152\...\nova.exe test src`,
+  подтверждено через `Get-CimInstance Win32_Process`), не моя правка;
+  финальный прогон на ребейзнутой ветке это подтверждает (чисто).
 - `./nova.sh lint src/doc_samples_test.nv` — 8 находок, ВСЕ вне вставленной
   секции (`extractors.md`, строки 301-396) — 0 новых находок от этой волны.
 
