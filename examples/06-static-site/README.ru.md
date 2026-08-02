@@ -43,17 +43,6 @@ curl -o /dev/null -w '%{http_code}\n' http://localhost:18087/assets/missing.txt 
 - Положи файл в `assets/` — `embed_dir` подхватит его на следующей сборке,
   ручной список `EmbeddedEntry` поддерживать не нужно.
 
-## Пробел, который этот пример обходит
-
-`polaris.static.static_handler(fs, cfg, param)` — хелпер «готовый Handler
-одним вызовом», описанный в `docs/static-files.md` — сейчас упирается в
-пробел кодогена для собственного `EmbeddedDir` этого пакета (`nova: out of
-memory` уже на первом отданном файле — №109). `/assets/{*path}` здесь
-вызывает `serve_path` напрямую из обычного замыкания — точно та же форма,
-что уже использует маршрут `/`, и именно то, что `static_handler` делает
-внутри (см. его однострочное тело в `src/static.nv`) — пробел его не
-задевает. Заведено выше по стеку.
-
 ## Связанная документация
 
 - [`docs/static-files.ru.md`](../../docs/static-files.ru.md) — `EmbeddedDir`, правила ETag/Range/index, безопасность
