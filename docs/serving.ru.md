@@ -190,7 +190,7 @@ test "serving: Log — info/error lines captured, no stdout scraping" {
 пакете — `info` для рядовых строк (строка запроса
 [батарейки `log`](batteries.ru.md#log)), `error` для отказов, которые
 должен увидеть человек (паника/throw фоновой задачи выше, и паника
-хендлера, пойманная recover-500). Она заменила три независимые
+обработчика, пойманная recover-500). Она заменила три независимые
 ручные копии sink'а (собственные `@emit`/`@sink` у `BackgroundTasks`,
 собственные `emit`/`@sink` у батарейки `log`, собственные
 `panic_emit`/`@panic_sink` у `ServerPolicy`) — Plan 222.20 §Q3.
