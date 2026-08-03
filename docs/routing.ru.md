@@ -1,4 +1,4 @@
-# Роутинг
+# Маршрутизация
 
 [English](routing.md) | **Русский**
 
@@ -18,7 +18,7 @@
 - [Две формы регистрации: statement и chain](#две-формы-регистрации-statement-и-chain)
 - [Шаблоны путей](#шаблоны-путей)
 - [`MethodRouter`: композиция методов на одном пути](#methodrouter-композиция-методов-на-одном-пути)
-- [`nest`: суб-роутеры с префиксом](#nest-суб-роутеры-с-префиксом)
+- [`nest`: суб-маршрутизаторы с префиксом](#nest-суб-маршрутизаторы-с-префиксом)
 - [Fallback'и: глобальный 404 vs per-route 405](#fallbackи-глобальный-404-vs-per-route-405)
 - [Конфликты routes — типизированные ошибки](#конфликты-routes--типизированные-ошибки)
 - [Typed-маршруты](#typed-маршруты)
@@ -39,7 +39,7 @@ test "routing: statement-form registration with !!" {
 
 `Router.mut @get/@post/@put/@delete/@patch(path, handler)` каждый возвращает
 `Result[Router, HttpError]` — **не** `Result[(), HttpError]`. Payload у `Ok`
-— сам роутер (`Ok(@)`), это и делает возможными обе формы регистрации ниже
+— сам маршрутизатор (`Ok(@)`), это и делает возможными обе формы регистрации ниже
 на одной и той же сигнатуре.
 
 Голая `fn`/замыкание в позиции, ожидающей `Handler`, автоподнимается в
@@ -78,7 +78,7 @@ test "routing: ?-chain inside a Result-returning fn, and !!-chain on an rvalue" 
   `Result[Router, HttpError]`, регистрации цепляются через `?`, и первая же
   ошибка коротко замыкает всю функцию.
 - **Fluent `!!`-chain на rvalue** — `Router.new().get(..)!!.post(..)!!` —
-  удобно для определения роутера одним выражением (таблица-константа в
+  удобно для определения маршрутизатора одним выражением (таблица-константа в
   начале модуля).
 
 Обе формы вызывают ровно одну и ту же машинерию `@route`/`@insert_segs` —
@@ -112,7 +112,7 @@ test "routing: {name} path params and {*rest} catch-all" {
 - **Приоритет структурный**: литеральные сегменты выигрывают у `{name}`,
   который выигрывает у `{*name}`, с backtracking'ом на тупике глубже по
   дереву — независимо от порядка регистрации routes. Так же ведёт себя Axum
-  (и `net/http` из Go 1.22), в отличие от линейного роутера first-match.
+  (и `net/http` из Go 1.22), в отличие от линейного маршрутизатора first-match.
 
 ## `MethodRouter`: композиция методов на одном пути
 
@@ -143,7 +143,7 @@ test "routing: MethodRouter composes get(h).post(h2) on one path, 405+Allow othe
 того, что реально зарегистрировано на этом route — никакого дополнительного
 кода не нужно.
 
-## `nest`: суб-роутеры с префиксом
+## `nest`: суб-маршрутизаторы с префиксом
 
 ```nova
 test "routing: nest merges a sub-router's routes under a prefix" {
@@ -162,7 +162,7 @@ test "routing: nest merges a sub-router's routes under a prefix" {
 `r.nest(prefix, sub)` перерегистрирует каждый уже конфликт-свободный route из
 `sub` в `r`, под `prefix` — конфликт префикса с уже существующим route в `r`
 — как всегда, типизированный `Err`, не паника. Собственный `@fallback` у
-`sub` (его 404 роутера) **не** переносится — участвуют только верхнеуровневый
+`sub` (его 404 маршрутизатора) **не** переносится — участвуют только верхнеуровневый
 `Router.@fallback` и per-route `MethodRouter.@fallback`; про то, как `nest`
 взаимодействует с `.use()`, — в
 [middleware.md](middleware.ru.md#router-use-и-nest).
@@ -186,7 +186,7 @@ test "routing: Router.fallback (global 404) vs MethodRouter.fallback (per-route 
 
 | Хук | Срабатывает когда | Область |
 |---|---|---|
-| `Router.mut @fallback(h)` | **ни один** путь в дереве не совпал вообще | глобально — 404 всего роутера |
+| `Router.mut @fallback(h)` | **ни один** путь в дереве не совпал вообще | глобально — 404 всего маршрутизатора |
 | `MethodRouter.mut @fallback(h)` | путь совпал, а метод — нет | 405 конкретного route'а |
 
 Ни один не задан по умолчанию: незаданный `Router.@fallback` отдаёт простой
@@ -213,10 +213,10 @@ Polaris вместо этого возвращает типизированны�
 ## Typed-маршруты
 
 Каждый `Router.@get`/`@post`/`@put`/`@delete`/`@patch(path, Handler)` выше
-регистрирует обычный, нетипизированный хендлер. `Router.@get_typed`/
+регистрирует обычный, нетипизированный обработчик. `Router.@get_typed`/
 `@post_typed`/… регистрируют вместо этого `TypedRoute` — та же диспетчеризация,
 но `TypeShape` запроса/ответа route'а дополнительно записываются для
-`Router.introspect()`. `@post_typed_h` идёт на шаг дальше: **голый** хендлер
+`Router.introspect()`. `@post_typed_h` идёт на шаг дальше: **голый** обработчик
 `fn(T) -> ServerResponse` плюс один type-параметр, без ручного извлечения и
 без литерала `TypedRoute` —
 
