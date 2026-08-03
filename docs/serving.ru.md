@@ -29,7 +29,7 @@ control), streaming/SSE-ответы и отложенная работа в д�
 ## Слои: `polaris.net` vs `polaris.serve`
 
 Слой провода (`polaris.net` — accept-loop, keep-alive, дедлайны, лимит
-размера тела, chunked-декод) **никогда** не импортирует `Router`/роутинг
+размера тела, chunked-декод) **никогда** не импортирует `Router`/маршрутизацию
 (нижний слой не зависит от верхнего) — `serve`/`serve_connection`/
 `handle_connection` там принимают голый byte-level callback
 `fn([]u8) -> ServerResponse`. `polaris.serve.serve_router`/
@@ -65,7 +65,7 @@ test "serving: ServerPolicy documented defaults + fluent tuning" {
 | `idle_deadline` | 60с | как долго открытое keep-alive соединение может простаивать |
 | `max_body_bytes` | 1 МиБ | лимит тела запроса — превышение это `413`, никогда неограниченный рост буфера |
 | `max_multipart_parts`/`_part_size`/`_total_bytes` | 256 / 8 МиБ / 32 МиБ | прокидывается в `Multipart.from_request`, см. [handlers-response.md](handlers-response.ru.md#multipartform-data) |
-| `panic_response` | `InternalError500` | чем отвечает пойманная паника хендлера |
+| `panic_response` | `InternalError500` | чем отвечает пойманная паника обработчика |
 
 У каждого поля есть геттер `@x()` и fluent-сеттер `mut @x(v) -> @` —
 сцепляйте несколько на одной `mut`-переменной, как делает `q` выше.
@@ -95,7 +95,7 @@ fn serving_main(consume listener TcpListener, consume single TcpStream, app Rout
   которого построен `serve_router`; полезен, когда accept-loop уже ведёте
   сами (тестовый harness, встраивающий хост).
 
-Пойманная паника хендлера отвечается согласно `policy.panic_response()`
+Пойманная паника обработчика отвечается согласно `policy.panic_response()`
 (по умолчанию `InternalError500` — честный `500`, соединение остаётся
 живым для *следующего* запроса, если обе стороны договорились о
 keep-alive) и логируется через ambient [эффект `Log`](#эффект-log)
@@ -165,7 +165,7 @@ test "serving: BackgroundTasks run AFTER the response, in FIFO order" {
 `mut @background(tasks) -> @` на `ServerResponse`) прикрепляет коллектор к
 ответу. Драйвер соединения (`handle_connection`/`serve_connection`)
 вызывает `@drain()` **после** того, как байты ответа полностью записаны
-клиенту — очередь работы никогда не добавляет латентности хендлеру. Задачи
+клиенту — очередь работы никогда не добавляет латентности обработчику. Задачи
 выполняются **по одной**, каждая в своём `supervised`-scope: паникующая
 задача изолирована (залогирована через ambient [эффект `Log`](#эффект-log),
 по умолчанию stdout), не останавливает задачи, поставленные после неё, и не
@@ -195,7 +195,7 @@ test "serving: Log — info/error lines captured, no stdout scraping" {
 собственные `emit`/`@sink` у батарейки `log`, собственные
 `panic_emit`/`@panic_sink` у `ServerPolicy`) — Plan 222.20 §Q3.
 
-Продакшен-код никогда не устанавливает хендлер явно: `real_log()` —
+Продакшен-код никогда не устанавливает обработчик явно: `real_log()` —
 `#default_handler` (D431) — оба уровня идут в stdout, лениво, при первом
 ambient-обращении. Тесты перенаправляют через
 `with Log = capture_log(lines) { ... }` (`lines` — `Vec[str]`, дополняется
