@@ -125,9 +125,9 @@ test "errors: a plain Result[T, HttpError] helper composes into a handler via th
 
 ```nova
 ro app = build_router()
-// ServerPolicy.panic_response(): InternalError500 (дефолт) пишет обычный
-// 500 и оставляет соединение живым для СЛЕДУЮЩЕГО запроса на нём; Close
-// вместо этого закрывает соединение без тела ответа.
+// ServerPolicy.panic_response(): InternalError500 (default) writes a
+// generic 500 and keeps the connection alive for the NEXT request on it;
+// Close drops the connection with no response body instead.
 serve_router(listener, app, ServerPolicy.new())
 ```
 

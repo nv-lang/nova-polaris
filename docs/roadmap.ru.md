@@ -43,7 +43,7 @@ r.get("/users/{id}", fn(req ServerRequest) -> ServerResponse {
 extractors как голые параметры функции (та же форма, что у Axum'а):
 
 ```nova
-// ЗАПЛАНИРОВАНО — не реализовано, не копируйте это в реальный код.
+// PLANNED — not implemented, do not copy this into real code yet.
 export fn Router mut @get[T1 FromRequest, R IntoResponse](path str, h fn(T1) -> R) -> Result[Router, HttpError]
 ```
 

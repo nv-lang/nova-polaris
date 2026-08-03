@@ -183,8 +183,8 @@ fn PinFlag.from_query(req ServerRequest) -> Result[PinFlag, HttpError] =>
 fn NoteBody.from_body(req ServerRequest) -> Result[NoteBody, HttpError] =>
     match Json[NoteBody].from_request(req) { Ok(j) => Ok(j.data()), Err(e) => Err(e) }
 
-// Одна запись-бандл — каждое поле называет СВОЙ источник через СВОЙ тип.
-// Хендлер ниже получает ОДИН голый `AddNoteReq`, ноль церемонии обёрток.
+// One bundle record — each field names its OWN source via its OWN type.
+// The handler below receives ONE bare `AddNoteReq`, zero wrapper ceremony.
 type AddNoteReq value { ro id NoteIdParam, ro opts PinFlag, ro note NoteBody }
 
 #impl(FromRequest)
@@ -196,11 +196,11 @@ fn AddNoteReq.from_request(req ServerRequest) -> Result[AddNoteReq, HttpError] {
     })
 }
 
-// Ручной `#impl(Reflect)` — НЕ авто-derived: field-walk авто-derive через
-// поле generic-обёрточного типа (`PathParam[T]` и т.п., встроенное ПОЛЕМ в
-// другую запись) — известный пробел компилятора. Ручной impl зеркалит
-// ровно то, что произвёл бы авто-derive для структуры `{ data T }`, то же
-// имя поля — см. [Связь с OpenAPI](#связь-с-openapi).
+// Manual `#impl(Reflect)` — NOT auto-derived: auto-derive's field-walk
+// through a generic-wrapper field type (`PathParam[T]` etc. embedded as a
+// FIELD of another record) is a known compiler gap. The manual impl
+// mirrors exactly what auto-derive WOULD produce for a `{ data T }` struct,
+// same field name — see [Connection to OpenAPI](#connection-to-openapi).
 #impl(Reflect)
 fn AddNoteReq.reflect() -> TypeShape => TypeShape.Record("AddNoteReq", [
     ("id",   TypeShape.Record("PathParam", [("data", NoteIdParam.reflect())])),
@@ -219,9 +219,8 @@ test "extractors: FromPath+FromQuery+FromBody bundle registered via bare-sugar p
     ro raw = "POST /notes/7?pinned=true HTTP/1.1\r\nHost: n\r\nContent-Type: application/json\r\nContent-Length: ${body.byte_len()}\r\n\r\n${body}".bytes()
     assert(wire_str(serve_once(r, raw)).contains("id=7 pinned=true text=hi"))
 
-    // не-числовой {id} отказывает уже на ПЕРВОМ поле-экстракторе
-    // (`NoteIdParam.from_path`) — `add_note` не запускается вовсе,
-    // `PinFlag`/`NoteBody` даже не пробуются.
+    // a non-numeric {id} fails the FIRST field's extractor (`NoteIdParam.from_path`)
+    // — `add_note` never runs, `PinFlag`/`NoteBody` are never even attempted.
     ro bad = "POST /notes/nope?pinned=true HTTP/1.1\r\nHost: n\r\nContent-Type: application/json\r\nContent-Length: ${body.byte_len()}\r\n\r\n${body}".bytes()
     assert(status_line(serve_once(r, bad)) == "HTTP/1.1 400 Bad Request")
 }
