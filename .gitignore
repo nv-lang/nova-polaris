@@ -31,3 +31,10 @@ target-cli/
 # nova main's own sources; not the repo's own artifact (mirrors target-cli/
 # above).
 .pbuild/
+
+# Рабочие журналы окон-агентов — одноразовые, пользователю пакета не нужны
+# (снято 2026-08-04 по замечанию владельца; выводы живут в реестре репы nova).
+PROGRESS*.md
+REPORT*.md
+BRIEF*.md
+*-progress.md
