@@ -6,10 +6,9 @@
 // (one failing task doesn't stop the rest, doesn't crash the process, and
 // gets logged).
 //
-// [M-crossmodule-samename-typecheck-bleed] (221.1 №28): no extra types
-// declared here that could collide by NAME with another module's type in
-// the same CU — this file only exercises `BackgroundTasks` (already
-// checked unique across nova-http + its dependencies).
+// [M-crossmodule-samename-typecheck-bleed] (221.1 №28): this file DOES now
+// declare one extra type, `OrderLog` (below) — checked unique by name
+// across nova-http + its dependencies at the time it was added.
 //
 // Plan 222.20 Ф.3 Волна A (§Q3): panic/throw logging is intercepted via
 // `with Log = capture_log(logs) { ... }` (`log.nv`, `polaris` root) around
@@ -17,11 +16,53 @@
 // `background.nv`'s own banner for the consolidation rationale). Asserts on
 // `logs`/`order` stay INSIDE the `with` block (same convention
 // `middleware/log_test.nv`/`std/concurrency/retry_test.nv` use).
+//
+// p-s1a2 (№289, S1a adversarial-pass hole): a bare `mut order []int`
+// captured by the task closures below is EXACTLY the D441 §5 "closure as
+// field" crossing — `bg.add(closure)` writes the closure into `Background
+// Tasks.tasks`, whose value is invoked inside `@drain()`'s own `spawn`
+// (`background.nv`, `for t in @tasks { ro task = t; spawn { task() } }`).
+// The checker's S1a-era taint pre-pass never recognized this shape (it only
+// tracked a for-loop's OWN pattern variable being called by its ORIGINAL
+// name — the rename to `task` broke the single-slot tracking); the p-s1a2
+// window generalized that tracking to a full let-binding-chain map and this
+// REAL, pre-existing race surfaced — `order`/`responded`/`ran_*`/`ran` were
+// always racing across the fiber boundary (`spawn` may run on a different
+// OS thread than the caller, even though `@drain()` sequences tasks ONE AT
+// A TIME via `supervised`'s per-iteration join). Fixed the same way
+// `log.nv`'s `capture_log` already fixes the identical class for `logs`
+// (its own banner, "Race fix", 2026-08-01): a `#share`-vouched wrapper
+// (`OrderLog`, Mutex-guarded) for the ordered-int case, `AtomicBool` for
+// the plain boolean flags — never a bare `mut` primitive/`Vec` crossing the
+// boundary un-audited.
 
 module polaris
 
+/// p-s1a2 (№289): Mutex-guarded ordered-int collector — the `#share`-safe
+/// replacement for a bare `mut order []int` captured across `BackgroundTasks`
+/// task closures (same shape as `log.nv`'s `capture_log`/`capture_push` for
+/// `[]str`). `.push`/`.len`/`.at` mirror plain-`Vec` call syntax closely
+/// enough that call sites barely change; the safety comes entirely from the
+/// internal `Mutex`, not from the caller remembering to lock anything.
+#share
+export type OrderLog value priv {
+    mut lock Mutex,
+    mut items Vec[int],
+}
+
+export fn OrderLog.new() -> OrderLog => { lock: Mutex.new(), items: [] }
+
+export fn OrderLog mut @push(v int) -> () {
+    consume g = @lock.lock()
+    @items.push(v)
+    g.unlock()
+}
+
+export fn OrderLog @len() -> int => @items.len()
+export fn OrderLog @at(i int) -> int => @items[i]
+
 test "drain(): tasks run in FIFO order (execution order, not queue order)" {
-    mut order []int = []
+    mut order = OrderLog.new()
     mut bg = BackgroundTasks.new()
     bg.add(|| { order.push(1) })
     bg.add(|| { order.push(2) })
@@ -29,9 +70,9 @@ test "drain(): tasks run in FIFO order (execution order, not queue order)" {
     assert(bg.task_count() == 3)
     bg.drain()
     assert(order.len() == 3)
-    assert(order[0] == 1)
-    assert(order[1] == 2)
-    assert(order[2] == 3)
+    assert(order.at(0) == 1)
+    assert(order.at(1) == 2)
+    assert(order.at(2) == 3)
 }
 
 test "drain(): tasks only run after the explicit checkpoint (\"response sent\")" {
@@ -39,26 +80,26 @@ test "drain(): tasks only run after the explicit checkpoint (\"response sent\")"
     // socket, THEN drains" — servernet.handle_connection is the live wire-
     // up (loopback smoke elsewhere); here the checkpoint is a plain flag
     // the task must NOT have touched before `drain()` is called.
-    mut responded = false
-    mut ran_before_response = false
-    mut ran_after_response = false
+    mut responded = AtomicBool.new(false)
+    mut ran_before_response = AtomicBool.new(false)
+    mut ran_after_response = AtomicBool.new(false)
     mut bg = BackgroundTasks.new()
     bg.add(|| {
-        if !responded { ran_before_response = true }
-        ran_after_response = true
+        if !responded.load() { ran_before_response.store(true) }
+        ran_after_response.store(true)
     })
     // "send the response" — nothing has drained yet.
-    responded = true
-    assert(!ran_before_response)
-    assert(!ran_after_response)
+    responded.store(true)
+    assert(!ran_before_response.load())
+    assert(!ran_after_response.load())
     // "after the response": drain runs the queued task now.
     bg.drain()
-    assert(!ran_before_response)
-    assert(ran_after_response)
+    assert(!ran_before_response.load())
+    assert(ran_after_response.load())
 }
 
 test "drain(): a panicking task doesn't stop the rest and doesn't crash" {
-    mut order []int = []
+    mut order = OrderLog.new()
     mut logs []str = []
     mut bg = BackgroundTasks.new()
     bg.add(|| { order.push(1) })
@@ -69,15 +110,15 @@ test "drain(): a panicking task doesn't stop the rest and doesn't crash" {
         // 1st and 3rd ran; 2nd's panic didn't take out the 3rd, and the
         // process is still here to assert on it.
         assert(order.len() == 2)
-        assert(order[0] == 1)
-        assert(order[1] == 3)
+        assert(order.at(0) == 1)
+        assert(order.at(1) == 3)
         assert(logs.len() == 1)
         assert(logs[0].find("boom").is_some())
     }
 }
 
 test "drain(): a throwing task is isolated the same way as a panicking one" {
-    mut order []int = []
+    mut order = OrderLog.new()
     mut logs []str = []
     mut bg = BackgroundTasks.new()
     bg.add(|| { order.push(1) })
@@ -86,15 +127,15 @@ test "drain(): a throwing task is isolated the same way as a panicking one" {
     with Log = capture_log(logs) {
         bg.drain()
         assert(order.len() == 2)
-        assert(order[0] == 1)
-        assert(order[1] == 3)
+        assert(order.at(0) == 1)
+        assert(order.at(1) == 3)
         assert(logs.len() == 1)
         assert(logs[0].find("typed failure").is_some())
     }
 }
 
 test "drain(): multiple failures each get logged, order preserved across them" {
-    mut order []int = []
+    mut order = OrderLog.new()
     mut logs []str = []
     mut bg = BackgroundTasks.new()
     bg.add(|| { panic("first") })
@@ -104,8 +145,8 @@ test "drain(): multiple failures each get logged, order preserved across them" {
     with Log = capture_log(logs) {
         bg.drain()
         assert(order.len() == 2)
-        assert(order[0] == 1)
-        assert(order[1] == 2)
+        assert(order.at(0) == 1)
+        assert(order.at(1) == 2)
         assert(logs.len() == 2)
         assert(logs[0].find("first").is_some())
         assert(logs[1].find("second").is_some())
@@ -119,22 +160,22 @@ test "drain(): empty collector is a no-op" {
 }
 
 test "add(): fluent chain returns the same collector" {
-    mut order []int = []
+    mut order = OrderLog.new()
     mut bg = BackgroundTasks.new()
     bg.add(|| { order.push(1) }).add(|| { order.push(2) })
     assert(bg.task_count() == 2)
     bg.drain()
     assert(order.len() == 2)
-    assert(order[0] == 1)
-    assert(order[1] == 2)
+    assert(order.at(0) == 1)
+    assert(order.at(1) == 2)
 }
 
 // ── ServerResponse round-trip (FastAPI `response.background`-analog) ─────────
 
 test "ServerResponse.background()/take_background(): round-trips the collector" {
-    mut ran = false
+    mut ran = AtomicBool.new(false)
     mut bg = BackgroundTasks.new()
-    bg.add(|| { ran = true })
+    bg.add(|| { ran.store(true) })
     mut resp = ServerResponse.text(200, "ok")
     resp.background(bg)
     match resp.take_background() {
@@ -143,7 +184,7 @@ test "ServerResponse.background()/take_background(): round-trips the collector" 
         }
         None => assert(false)
     }
-    assert(ran)
+    assert(ran.load())
 }
 
 test "ServerResponse without .background(): take_background() is None" {

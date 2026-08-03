@@ -24,7 +24,7 @@ import polaris.{Json, PathParam, Query, Bytes, Text, Headers, Multipart}
 import polaris.{FromRequest, FromPath, FromQuery, FromBody, TypedRoute, openapi_handler}
 import polaris.{Bearer, BasicAuth, JwtAuth, JwtClaims, CookieJar}
 import polaris.{SessionStore, memory_session_store, SessionConfig, session, require_jwt}
-import polaris.{BackgroundTasks, StreamBody, sse_event, WebSocketUpgrade}
+import polaris.{BackgroundTasks, StreamBody, sse_event, WebSocketUpgrade, OrderLog}
 import polaris.{serve_once, route_once, capture_log, Log}
 import polaris.ws.{WebSocket, Message}
 import polaris.net.{ServerPolicy}
@@ -662,15 +662,19 @@ test "serving: ServerPolicy documented defaults + fluent tuning" {
 }
 
 test "serving: BackgroundTasks run AFTER the response, in FIFO order" {
-    mut order []int = []
+    // p-s1a2 (№289): `OrderLog` (Mutex-guarded, `#share`-vouched — see
+    // `background_test.nv`'s banner) replaces a bare `mut order []int`,
+    // which raced across the `bg.add(closure)` → `@drain()`'s `spawn`
+    // fiber boundary the same way `background_test.nv`'s own FIFO test did.
+    mut order = OrderLog.new()
     mut bg = BackgroundTasks.new()
     bg.add(|| { order.push(1) })
     bg.add(|| { order.push(2) })
     assert(bg.task_count() == 2)
     bg.drain() // the connection driver calls this once the response bytes are on the wire
     assert(order.len() == 2)
-    assert(order[0] == 1)
-    assert(order[1] == 2)
+    assert(order.at(0) == 1)
+    assert(order.at(1) == 2)
 }
 
 test "serving: Log — info/error lines captured, no stdout scraping" {
