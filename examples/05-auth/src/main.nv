@@ -35,7 +35,7 @@ fn mint_token(sub str) -> str {
     // Map literal + sum-coercion: "..." -> Str, 5e9 -> Num (spec: record
     // literal as map). `JsonValue.object(...)` stays until `JsonObject`
     // exposes the map-literal protocol (queued std-API polish).
-    ro fields HashMap[str, JsonValue] = { sub, exp: 5_000_000_000.0 }
+    ro fields IndexMap[str, JsonValue] = { sub, exp: 5_000_000_000.0 }
     Jwt.encode_hs256(jwt_secret(), JsonValue.object(fields))
 }
 
