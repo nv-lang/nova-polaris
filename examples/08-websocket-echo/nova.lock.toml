@@ -16,7 +16,7 @@ name = "http"
 source = "git"
 git = "https://github.com/nv-lang/nova-http"
 pin = "version:>=0.1.0, <0.2.0"
-commit = "5257f3026b54b264bef4842a0077225305ef40a5"
+commit = "1af06c18af0039a9afe0d6ee39a344ef877ebb29"
 
 [[package]]
 name = "polaris"
