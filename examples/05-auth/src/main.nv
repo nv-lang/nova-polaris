@@ -32,10 +32,12 @@ fn demo_now() -> u64 => 4_000_000_000
 type AuthClaims value { ro sub str }
 
 fn mint_token(sub str) -> str {
-    // Map literal + sum-coercion: "..." -> Str, 5e9 -> Num (spec: record
-    // literal as map). `JsonValue.object(...)` stays until `JsonObject`
-    // exposes the map-literal protocol (queued std-API polish).
-    ro fields IndexMap[str, JsonValue] = { sub, exp: 5_000_000_000.0 }
+    // Explicit inserts: the record-literal-as-map form works for the
+    // built-in map only, not for a named wrapper type like `IndexMap`
+    // (bug 335). Same shape as examples/10-mini-service.
+    mut fields IndexMap[str, JsonValue] = IndexMap[str, JsonValue].new()
+    fields.insert("sub", JsonValue.str(sub))
+    fields.insert("exp", JsonValue.num(5_000_000_000.0))
     Jwt.encode_hs256(jwt_secret(), JsonValue.object(fields))
 }
 
