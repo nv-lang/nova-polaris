@@ -70,8 +70,10 @@
 // repeated compiler behavior in this exact package (`ServerPolicy`, not
 // `ServerConfig` — see that file's own banner; `NetError`/`ParseUrlError`,
 // `servernet.nv`'s). Resolved by renaming the middleware's config record
-// `Log` -> `AccessLog` (parallel to its `Cors`/`RateLimit`/`Compression`
-// siblings — a feature-named config, not a generic `Log`) instead of
+// `Log` -> `AccessLog` (parallel to its `Cors` sibling — a feature-named
+// config, not a generic `Log`; the other two original siblings this
+// pattern was named after have since been collapsed to bare functions,
+// [M-ratelimit-compression-flatten-to-default-args]) instead of
 // picking an off-convention name for the effect itself: `Log` stays
 // reserved for the one ambient capability, matching the single-word
 // convention every other ambient effect in this codebase uses

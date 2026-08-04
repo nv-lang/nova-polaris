@@ -32,9 +32,11 @@
 // bare `Log` — collided (same-CU bare-name lookup, this package's own
 // documented failure class, see `ServerPolicy`'s banner in
 // `net/config.nv`) with the new ambient `Log` EFFECT (`log.nv`, `polaris`
-// root) once introduced. Renamed to `AccessLog` (parallel to its
-// `Cors`/`RateLimit`/`Compression` siblings — a feature-named config, not a
-// generic `Log`); the config's own former `emit` field + `@sink(f)` setter
+// root) once introduced. Renamed to `AccessLog` (parallel to its `Cors`
+// sibling — a feature-named config, not a generic `Log`; the other two
+// original siblings this pattern was named after have since been collapsed
+// to bare functions, [M-ratelimit-compression-flatten-to-default-args]);
+// the config's own former `emit` field + `@sink(f)` setter
 // (an independent hand-rolled copy of the SAME sink pattern `background.nv`
 // and `net/config.nv` also had) are gone — `log_apply` below calls
 // `Log.info(...)` directly, tests intercept via
@@ -74,13 +76,13 @@ export fn AccessLog mut @real_ip(on bool) -> @ { @real_ip = on }
 
 /// Build the middleware. `Time` row: the per-request line measures elapsed
 /// time via `Monotonic.now()` (ambient default in prod; a test builds under
-/// `th.fixed_ms` — same row-declaration chain as `RateLimit.middleware()`,
+/// `th.fixed_ms` — same row-declaration chain as `ratelimit()`,
 /// strict-effects package gate 222 §9). `Log` is NOT in this row — the
 /// per-request line is emitted through a raw `Log.info(...)` op inside
 /// `log_apply` (design note §0 Ф-C), which `--strict-effects` does not
 /// check.
 #stable(since = "0.1")
-export fn AccessLog @middleware() Time -> Middleware {
+fn AccessLog @middleware() Time -> Middleware {
     ro cfg = @
     middleware(fn(req ServerRequest, next Handler) -> ServerResponse => log_apply(cfg, next, req))
 }
@@ -126,8 +128,28 @@ fn request_id_of(cfg AccessLog, req ServerRequest) -> str {
 }
 
 fn fresh_id(cfg AccessLog) -> str {
-    // `AtomicInt` is a `#share` cell — a `mut` BINDING is only needed to
-    // satisfy the receiver-mut check; the copy aliases the same cell.
+    // [M-334] (owner probe, re-verified on THIS call chain): a bare
+    // `cfg.counter.fetch_add(...)` with a plain (non-`mut`) `cfg` param
+    // fails D33 lvalue-chain enforcement —
+    //   E_PARAM_NOT_MUT: параметр `cfg` не помечен `mut`, но mut-метод
+    //   `fetch_add` вызван через chain `cfg…`. Root binding chain'а должен
+    //   быть `mut` (Plan 128.2 / D33 lvalue chain enforcement).
+    // Marking `fresh_id`'s OWN param `mut cfg AccessLog` clears that, but
+    // `cfg` arrives here through `log_apply` -> `request_id_of` ->
+    // `fresh_id`, each hop currently a plain (readonly-bound) param — a
+    // `mut` callee param rejects a readonly-bound argument outright
+    // (E_READONLY_COERCE, D176/D246-амендмент [M-ro-launder-via-mut-
+    // binding]) fired at BOTH `request_id_of`'s `fresh_id(cfg)` call sites.
+    // Cascading `mut` up through `request_id_of`/`log_apply` too was ruled
+    // out (out of scope for this fix, would ripple into `log_apply`'s own
+    // `next(req)`/`cfg.request_id` reads). The local `mut` COPY below is
+    // therefore still doing real work here — not the receiver-mut-check
+    // ceremony the old comment claimed, but sidestepping the readonly
+    // parameter chain: it opens a NEW mut binding whose root is the local
+    // `counter`, not the readonly `cfg` chain. `AtomicInt` being a `#share`
+    // cell is what makes the copy's mutation visible back through `cfg`
+    // (verified: two `fresh_id` calls on the same config give `req-1`/
+    // `req-2`, not `req-1`/`req-1`).
     mut counter = cfg.counter
     ro n = counter.fetch_add(1) + 1
     "req-${n}"

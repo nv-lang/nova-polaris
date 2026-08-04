@@ -28,42 +28,18 @@ module middleware.compress
 import polaris.{Handler, middleware, Middleware, ServerRequest, ServerResponse}
 import compress.{gzip_encode, CompressLevel}
 
-/// Compression config (fluent; finish with `@middleware()`).
+/// Build the middleware. Defaults: `min_size` = 1024 bytes, default gzip
+/// level (`CompressLevel.fastest()/default()/best()`).
 #stable(since = "0.1")
-export type Compression value priv {
-    min_size int
-    level    CompressLevel
+export fn compression(min_size int = 1024, level CompressLevel = CompressLevel.default()) -> Middleware {
+    middleware(fn(req ServerRequest, next Handler) -> ServerResponse => compress_apply(min_size, level, next, req))
 }
-
-/// Defaults: min_size = 1024 bytes, default gzip level.
-#stable(since = "0.1")
-export fn Compression.new() -> Compression =>
-    { min_size: 1024, level: CompressLevel.default() }
-
-/// Do not compress bodies smaller than `n` bytes (default 1024).
-#stable(since = "0.1")
-export fn Compression mut @min_size(n int) -> @ { @min_size = n }
-
-/// gzip level (`CompressLevel.fastest()/default()/best()`).
-#stable(since = "0.1")
-export fn Compression mut @level(l CompressLevel) -> @ { @level = l }
-
-/// Build the middleware.
-#stable(since = "0.1")
-export fn Compression @middleware() -> Middleware {
-    ro cfg = @
-    middleware(fn(req ServerRequest, next Handler) -> ServerResponse => compress_apply(cfg, next, req))
-}
-
-/// Convenience: `compression(Compression.new())` → ready `Middleware`.
-#stable(since = "0.1")
-export fn compression(cfg Compression) -> Middleware => cfg.middleware()
 
 // ── internals ───────────────────────────────────────────────────────────────
 
 // `next` arrives as a PARAM — `next(req)` is the safe D52 param call-through
 // ([M-16] discipline, cors.nv `cors_apply` precedent).
-fn compress_apply(cfg Compression, next Handler, req ServerRequest) -> ServerResponse {
+fn compress_apply(min_size int, level CompressLevel, next Handler, req ServerRequest) -> ServerResponse {
     // `mut` from the start (D246 canon (a)) — mutated below (`.header(...)`);
     // no separate `resp` copy needed, unlike the old ro→mut launder.
     mut resp0 = next(req)
@@ -72,9 +48,9 @@ fn compress_apply(cfg Compression, next Handler, req ServerRequest) -> ServerRes
     if !compressible_type(resp0) { return resp0 }
     // Negotiable from here on: mark Vary even if this answer stays identity.
     resp0.header("Vary", vary_value(resp0, "accept-encoding"))
-    if resp0.body.len() < cfg.min_size { return resp0 }
+    if resp0.body.len() < min_size { return resp0 }
     if !accepts_gzip(req.header("accept-encoding") ?? "") { return resp0 }
-    match gzip_encode(resp0.body, cfg.level) {
+    match gzip_encode(resp0.body, level) {
         Ok(gz) => {
             if gz.len() >= resp0.body.len() { return resp0 }   // not worth it
             // [M-fluent-value-init-local-deref] (221.1 №36): init mut-локали из

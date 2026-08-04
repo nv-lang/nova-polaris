@@ -6,7 +6,7 @@
 
 module middleware.ratelimit_test
 
-import polaris.middleware.ratelimit.{RateLimit, ratelimit}
+import polaris.middleware.ratelimit.{ratelimit}
 import polaris.{Router, route_once, ServerResponse}
 import std.testing.handlers as th
 
@@ -26,16 +26,16 @@ fn hdr(resp ServerResponse, name str) -> str {
     }
 }
 
-fn routed(cfg RateLimit) Time -> Router {
+fn routed(capacity int, per_sec f64, per_client bool = false) Time -> Router {
     mut r = Router.new()
-    r.use(ratelimit(cfg))
+    r.use(ratelimit(capacity, per_sec, per_client: per_client))
     r.get("/x", fn(_req ServerRequest) -> ServerResponse => ServerResponse.text(200, "ok"))!!
     r
 }
 
 test "ratelimit: burst within capacity passes, next request -> 429 + Retry-After" {
     with Time = th.fixed_ms(0) {
-        ro r = routed(RateLimit.new(2, 1.0))
+        ro r = routed(2, 1.0)
         assert(route_once(r, req_from("")).status_code() == 200)
         assert(route_once(r, req_from("")).status_code() == 200)
         ro third = route_once(r, req_from(""))
@@ -45,7 +45,7 @@ test "ratelimit: burst within capacity passes, next request -> 429 + Retry-After
 }
 
 test "ratelimit: refill over mocked time re-admits" {
-    ro r = with Time = th.fixed_ms(0) { routed(RateLimit.new(1, 1.0)) }
+    ro r = with Time = th.fixed_ms(0) { routed(1, 1.0) }
     with Time = th.fixed_ms(0) {
         assert(route_once(r, req_from("")).status_code() == 200)
         assert(route_once(r, req_from("")).status_code() == 429)
@@ -59,9 +59,7 @@ test "ratelimit: refill over mocked time re-admits" {
 
 test "ratelimit: per_client keys buckets by first X-Forwarded-For hop" {
     with Time = th.fixed_ms(0) {
-        mut cfg = RateLimit.new(1, 1.0)
-        cfg.per_client(true)
-        ro r = routed(cfg)
+        ro r = routed(1, 1.0, per_client: true)
         assert(route_once(r, req_from("1.1.1.1")).status_code() == 200)
         assert(route_once(r, req_from("1.1.1.1")).status_code() == 429)   // 1.1.1.1 exhausted
         assert(route_once(r, req_from("2.2.2.2, 10.0.0.1")).status_code() == 200) // other client unaffected
@@ -72,7 +70,7 @@ test "ratelimit: per_client keys buckets by first X-Forwarded-For hop" {
 
 test "ratelimit: Retry-After is ceil(1/per_sec)" {
     with Time = th.fixed_ms(0) {
-        ro r = routed(RateLimit.new(1, 0.4))
+        ro r = routed(1, 0.4)
         assert(route_once(r, req_from("")).status_code() == 200)
         ro limited = route_once(r, req_from(""))
         assert(limited.status_code() == 429)
@@ -83,7 +81,7 @@ test "ratelimit: Retry-After is ceil(1/per_sec)" {
 test "ratelimit: one shared table covers all routes of the router" {
     with Time = th.fixed_ms(0) {
         mut r = Router.new()
-        r.use(ratelimit(RateLimit.new(2, 1.0)))
+        r.use(ratelimit(2, 1.0))
         r.get("/a", fn(_req ServerRequest) -> ServerResponse => ServerResponse.text(200, "a"))!!
         r.get("/b", fn(_req ServerRequest) -> ServerResponse => ServerResponse.text(200, "b"))!!
         assert(route_once(r, "GET /a HTTP/1.1\r\nHost: x\r\n\r\n".bytes()).status_code() == 200)

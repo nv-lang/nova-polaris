@@ -118,12 +118,20 @@ different parents does not cross-contaminate — `@nest` never mutates `sub`
 
 ## Writing your own — batteries style
 
-Every battery in [batteries.md](batteries.md) is a fluent config type ending
-in a `@middleware()` builder that wraps the canon `middleware(...)` form —
-that is the recommended shape for your own middleware too: a small config
-value, a builder method, and a top-level `_apply` function the closure
-delegates to (keeping every closure's capture set to exactly what it needs,
-one level of nesting).
+The four batteries in [batteries.md](batteries.md) split into two shapes —
+pick by how many scalar knobs your middleware needs:
+
+- **Up to three scalar params → a bare function with default params**
+  (sample: `compression`/`ratelimit`). No config type at all: a top-level
+  `fn my_thing(a int, b bool = false) -> Middleware` that closes over its
+  params and delegates to a top-level `_apply` function (keeping the
+  closure's capture set to exactly what it needs, one level of nesting).
+- **More than that — lists, a set of independent toggles → a config type +
+  a *private* `@middleware()` + a *public*, same-named free function**
+  (sample: `cors`/`logger`). The type stays a fluent builder (repeatable
+  `@allow_origin(...)`-style methods, several boolean toggles); `@middleware()`
+  itself is not `export`ed, so `my_thing(cfg)` is the one public entry point
+  — never two ways to reach the same middleware.
 
 ## Related documents
 

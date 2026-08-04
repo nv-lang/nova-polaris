@@ -7,7 +7,7 @@
 // the SAME shared bucket table at once, so it cannot reproduce the
 // concurrent-`HashMap`-resize crash this P1 flagged). This file spawns
 // `CONCURRENCY` client fibers that all connect and send their ONE request
-// at roughly the same instant, all against ONE `RateLimit` middleware
+// at roughly the same instant, all against ONE `ratelimit()` middleware
 // instance (one shared, `Mutex`-guarded `BucketTable`, `ratelimit.nv`).
 //
 // What this proves: (a) the server does not crash/hang under concurrent
@@ -27,7 +27,7 @@ module rt.ratelimit_concurrent_smoke
 
 import std.net.{TcpListener, TcpStream, SocketAddr, real_net}
 import polaris.{Router, ServerRequest, ServerResponse}
-import polaris.middleware.ratelimit.{RateLimit, ratelimit}
+import polaris.middleware.ratelimit.{ratelimit}
 import polaris.net.{ServerPolicy}
 import polaris.serve.{serve_router}
 
@@ -36,7 +36,7 @@ const CAPACITY = 5
 
 fn limited_routes() Time -> Router {
     mut r = Router.new()
-    r.use(ratelimit(RateLimit.new(CAPACITY, 0.01)))   // near-zero refill: no meaningful mid-test admission
+    r.use(ratelimit(CAPACITY, 0.01))   // near-zero refill: no meaningful mid-test admission
     r.get("/x", fn(_req ServerRequest) -> ServerResponse => ServerResponse.text(200, "ok"))!!
     r
 }

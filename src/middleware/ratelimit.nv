@@ -14,7 +14,7 @@
 // IoCapture-precedent "the same instance is mutated"), so every
 // closure/copy aliases ONE bucket table; a config built once and layered
 // once limits the route set globally. Keying: default is ONE global bucket
-// (chi Throttle shape); `per_client(true)` keys buckets by the first
+// (chi Throttle shape); `per_client: true` keys buckets by the first
 // `X-Forwarded-For` hop (same trust caveat as middleware/log.nv `RealIP` —
 // only meaningful behind a proxy that overwrites the header; absent header
 // → the "" bucket).
@@ -47,30 +47,13 @@ import std.concurrency.rate_limiter.{TokenBucket}
 import std.collections.hashmap.{HashMap}
 import std.runtime.sync.{Mutex}
 
-/// Rate-limit config (fluent; finish with `@middleware()`).
-/// `capacity` = burst size, `per_sec` = sustained refill rate.
+/// `capacity` tokens of burst, refilled at `per_sec` tokens/second. Keying
+/// is one global bucket by default; `per_client: true` keys buckets by the
+/// first `X-Forwarded-For` hop (trust caveat in the file banner). `Time`
+/// row: the shared bucket table is created here (ambient default in prod; a
+/// test builds under `th.fixed_ms`).
 #stable(since = "0.1")
-export type RateLimit value priv {
-    capacity   int
-    per_sec    f64
-    per_client bool
-}
-
-/// `capacity` tokens of burst, refilled at `per_sec` tokens/second.
-#stable(since = "0.1")
-export fn RateLimit.new(capacity int, per_sec f64) -> RateLimit =>
-    { capacity, per_sec, per_client: false }
-
-/// Key buckets by the first `X-Forwarded-For` hop instead of one global
-/// bucket (default OFF; trust caveat in the file banner).
-#stable(since = "0.1")
-export fn RateLimit mut @per_client(on bool) -> @ { @per_client = on }
-
-/// Build the middleware. `Time` row: the shared bucket table is created here
-/// (ambient default in prod; a test builds under `th.fixed_ms`).
-#stable(since = "0.1")
-export fn RateLimit @middleware() Time -> Middleware {
-    ro cfg = @
+export fn ratelimit(capacity int, per_sec f64, per_client bool = false) Time -> Middleware {
     // `mut` (not `ro`): this is the SHARED bucket table, captured by the
     // closure below and threaded into `rl_apply` as a `mut` in-out param on
     // every request (D246 canon (a) — genuinely in-out: mutations from one
@@ -78,12 +61,9 @@ export fn RateLimit @middleware() Time -> Middleware {
     // limiting, not an independent-copy case). `BucketTable` (below) is the
     // `Mutex`-guarded wrapper — [M-ratelimit-buckets-unsynchronized-race].
     mut table = BucketTable.new()
-    middleware(fn(req ServerRequest, next Handler) -> ServerResponse => rl_apply(cfg, table, next, req))
+    middleware(fn(req ServerRequest, next Handler) -> ServerResponse =>
+        rl_apply(capacity, per_sec, per_client, table, next, req))
 }
-
-/// Convenience: `ratelimit(RateLimit.new(100, 50.0))` → ready `Middleware`.
-#stable(since = "0.1")
-export fn ratelimit(cfg RateLimit) Time -> Middleware => cfg.middleware()
 
 // ── internals ───────────────────────────────────────────────────────────────
 
@@ -118,16 +98,16 @@ fn BucketTable @bucket_for(key str, capacity int, per_sec f64) Time -> TokenBuck
 
 // `next` arrives as a PARAM — `next(req)` is the safe D52 param call-through
 // ([M-16] discipline, see cors.nv `cors_apply`). The flat `middleware(...)`
-// closure above captures only the two locals (`cfg`, `table` — the SHARED
-// bucket table, one per built middleware value).
-fn rl_apply(cfg RateLimit, mut table BucketTable, next Handler, req ServerRequest) Time -> ServerResponse {
-    ro key = if cfg.per_client { client_key(req) } else { "" }
-    mut bucket = table.bucket_for(key, cfg.capacity, cfg.per_sec)
+// closure above captures `capacity`/`per_sec`/`per_client`/`table` — the
+// SHARED bucket table, one per built middleware value.
+fn rl_apply(capacity int, per_sec f64, per_client bool, mut table BucketTable, next Handler, req ServerRequest) Time -> ServerResponse {
+    ro key = if per_client { client_key(req) } else { "" }
+    mut bucket = table.bucket_for(key, capacity, per_sec)
     if bucket.acquire() {
         next(req)
     } else {
         mut resp = ServerResponse.text(429, "429 too many requests")
-        resp.header("Retry-After", "${retry_after_secs(cfg.per_sec)}")
+        resp.header("Retry-After", "${retry_after_secs(per_sec)}")
         resp
     }
 }
