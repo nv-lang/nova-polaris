@@ -3,7 +3,7 @@
 [English](extractors.md) | **Русский**
 
 **Экстрактор** извлекает типизированное значение из `ServerRequest` вместо
-того, чтобы хендлер сам вручную парсил байты/строки — идея `FromRequest` из
+того, чтобы обработчик сам вручную парсил байты/строки — идея `FromRequest` из
 Axum'а, один метод протокола: `.from_request(req) -> Result[Self, HttpError]`.
 Эта страница покрывает семейство экстракторов целиком: базовый протокол,
 шесть встроенных экстракторов, голый-типовой сахар, позволяющий обычному
@@ -43,7 +43,7 @@ export type FromRequest protocol {
 ```
 
 Всегда синхронный — в отличие от Axum'овского `async fn from_request`, тело
-запроса в Polaris к моменту, когда его видит хендлер, уже полностью
+запроса в Polaris к моменту, когда его видит обработчик, уже полностью
 буферизовано (см. [handlers-response.md](handlers-response.ru.md#serverrequest)),
 поэтому в извлечении вообще нет точки await.
 
@@ -119,14 +119,14 @@ test "handlers-response: typed extractors — PathParam/Query/Json via FromReque
 крэш. Ручной вызов `.from_request` (как выше) означает, что короткое
 замыкание пишете *вы сами* через `match`/`?`; [регистраторы typed-маршрутов](#typed-маршруты-typedroute--_typed)
 ниже делают это за вас: **первый `Err` при извлечении сразу уходит в
-`e.into_response()` — сама функция-хендлер не вызывается вовсе.** Это то
+`e.into_response()` — сама функция-обработчик не вызывается вовсе.** Это то
 же правило, которому следует собственный рукописный `#impl(FromRequest)`
 у типа-бандла, когда он композирует несколько источников через `?` (см.
 следующий раздел) — короткое замыкание при чтении, а не при записи.
 
 ## Голый-типовой сахар: `FromPath` / `FromQuery` / `FromBody`
 
-Форма **лучше** паритета с Axum: вместо того, чтобы параметр хендлера был
+Форма **лучше** паритета с Axum: вместо того, чтобы параметр обработчика был
 обёрнут (`PathParam[UserId]`, `Query[Filter]`, `Json[Body]`) с разворачиванием
 `.data()` на каждом использовании, обычный доменный тип объявляет свой
 **собственный** источник извлечения один раз, через один из трёх более
@@ -159,7 +159,7 @@ export type FromBody protocol {
 `#impl(FromRequest)` извлекает каждое поле по порядку объявления через `?`
 — это ровно то же правило короткого замыкания, что и в разделе выше:
 первое отказавшее поле возвращается немедленно, оставшиеся поля (и
-хендлер) не выполняются вовсе.
+обработчик) не выполняются вовсе.
 
 ```nova
 #impl(Serialize + Deserialize + Reflect)
@@ -183,8 +183,8 @@ fn PinFlag.from_query(req ServerRequest) -> Result[PinFlag, HttpError] =>
 fn NoteBody.from_body(req ServerRequest) -> Result[NoteBody, HttpError] =>
     match Json[NoteBody].from_request(req) { Ok(j) => Ok(j.data()), Err(e) => Err(e) }
 
-// Одна запись-бандл — каждое поле называет СВОЙ источник через СВОЙ тип.
-// Хендлер ниже получает ОДИН голый `AddNoteReq`, ноль церемонии обёрток.
+// One bundle record — each field names its OWN source via its OWN type.
+// The handler below receives ONE bare `AddNoteReq`, zero wrapper ceremony.
 type AddNoteReq value { ro id NoteIdParam, ro opts PinFlag, ro note NoteBody }
 
 #impl(FromRequest)
@@ -196,11 +196,11 @@ fn AddNoteReq.from_request(req ServerRequest) -> Result[AddNoteReq, HttpError] {
     })
 }
 
-// Ручной `#impl(Reflect)` — НЕ авто-derived: field-walk авто-derive через
-// поле generic-обёрточного типа (`PathParam[T]` и т.п., встроенное ПОЛЕМ в
-// другую запись) — известный пробел компилятора. Ручной impl зеркалит
-// ровно то, что произвёл бы авто-derive для структуры `{ data T }`, то же
-// имя поля — см. [Связь с OpenAPI](#связь-с-openapi).
+// Manual `#impl(Reflect)` — NOT auto-derived: auto-derive's field-walk
+// through a generic-wrapper field type (`PathParam[T]` etc. embedded as a
+// FIELD of another record) is a known compiler gap. The manual impl
+// mirrors exactly what auto-derive WOULD produce for a `{ data T }` struct,
+// same field name — see [Connection to OpenAPI](#connection-to-openapi).
 #impl(Reflect)
 fn AddNoteReq.reflect() -> TypeShape => TypeShape.Record("AddNoteReq", [
     ("id",   TypeShape.Record("PathParam", [("data", NoteIdParam.reflect())])),
@@ -219,9 +219,8 @@ test "extractors: FromPath+FromQuery+FromBody bundle registered via bare-sugar p
     ro raw = "POST /notes/7?pinned=true HTTP/1.1\r\nHost: n\r\nContent-Type: application/json\r\nContent-Length: ${body.byte_len()}\r\n\r\n${body}".bytes()
     assert(wire_str(serve_once(r, raw)).contains("id=7 pinned=true text=hi"))
 
-    // не-числовой {id} отказывает уже на ПЕРВОМ поле-экстракторе
-    // (`NoteIdParam.from_path`) — `add_note` не запускается вовсе,
-    // `PinFlag`/`NoteBody` даже не пробуются.
+    // a non-numeric {id} fails the FIRST field's extractor (`NoteIdParam.from_path`)
+    // — `add_note` never runs, `PinFlag`/`NoteBody` are never even attempted.
     ro bad = "POST /notes/nope?pinned=true HTTP/1.1\r\nHost: n\r\nContent-Type: application/json\r\nContent-Length: ${body.byte_len()}\r\n\r\n${body}".bytes()
     assert(status_line(serve_once(r, bad)) == "HTTP/1.1 400 Bad Request")
 }
@@ -286,7 +285,7 @@ export fn Router mut @post_typed_h[T FromRequest + Reflect](path str, h fn(T) ->
 ```
 
 Эргономичная форма, использованная в [примере с бандлом](#голый-типовой-сахар-frompath--fromquery--frombody)
-выше: передаётся **голый** хендлер `h fn(T) -> ServerResponse` плюс один
+выше: передаётся **голый** обработчик `h fn(T) -> ServerResponse` плюс один
 type-параметр `T`, а `@post_typed_h` собирает адаптер `TypedRoute` сам —
 `T.from_request(req)` на входе (первый `Err` коротко замыкает на
 `e.into_response()`, по [правилу выше](#отказавший-экстрактор-коротко-замыкает-на-ответ)),

@@ -48,7 +48,7 @@ tower-http'шного `permissive()`). Методы-билдеры: `@allow_orig
 `@credentials(bool)`, `@max_age(secs)`.
 
 Preflight-запросы `OPTIONS` (с `Access-Control-Request-Method`) отвечаются
-**полностью самим middleware** — `204`, `next` не вызывается вовсе,
+**полностью самим промежуточным обработчиком** — `204`, `next` не вызывается вовсе,
 собственный `405`-fallback обёрнутого route'а никогда не показывается.
 `Access-Control-Allow-Origin: *` вместе с `credentials(true)` запрещено
 спецификацией, и `@middleware()` на такой конфигурации **паникует** — как
@@ -121,7 +121,7 @@ chi'шного `RealIP`: этот заголовок контролируетс�
 только за прокси, который его перезаписывает.
 
 `@middleware()` несёт эффект-ряд `Time` (он измеряет wall-clock
-длительность вокруг обёрнутого хендлера) — тесты фиксируют часы через
+длительность вокруг обёрнутого обработчика) — тесты фиксируют часы через
 `with Time = th.fixed_ms(...)` (`std.testing.handlers`) для
 детерминированного вывода, как показано выше. `Log` в этом ряду НЕТ:
 строка запроса эмитится сырым опом `Log.info(...)` (не проверяется под
@@ -151,8 +151,9 @@ test "batteries: ratelimit — burst within capacity passes, then 429 + Retry-Af
 `X-Forwarded-For` (тот же предупреждающий комментарий про доверие, что и у
 `RealIP` в `log`). Отклонённый запрос получает `429` +
 `Retry-After: <ceil(1/per_sec)>` секунд — ближайший момент, когда токен
-может появиться снова. Как и `log`, построение middleware несёт эффект-ряд
-`Time` (bucket пополняется относительно `Monotonic.now()`); тесты
+может появиться снова. Как и `log`, построение промежуточного обработчика
+несёт эффект-ряд `Time` (bucket пополняется относительно
+`Monotonic.now()`); тесты
 фиксируют часы тем же способом.
 
 > **Известное упрощение**: bucket не защищён локом — под настоящей
@@ -165,5 +166,5 @@ test "batteries: ratelimit — burst within capacity passes, then 429 + Retry-Af
 **Полный пример:** [`examples/04-middleware`](../examples/04-middleware) — `log`+`ratelimit` реально запущенные (см. также [`10-mini-service`](../examples/10-mini-service) — `log` в сервисе побольше).
 
 - [middleware.md](middleware.ru.md) — ядро `Middleware`/`Router.@use`, на котором это построено
-- [auth.md](auth.ru.md) — `require_jwt`/`session`, ещё два готовых middleware
+- [auth.md](auth.ru.md) — `require_jwt`/`session`, ещё два готовых промежуточных обработчика
 - [`src/middleware/`](../src/middleware) — полный исходник + pin-тесты для всех четырёх

@@ -1,0 +1,18 @@
+# Канон публикации docs/ полариса на сайт (план 241 Ф.2b, 2026-08-03).
+# Один slug в строке = страница публикуется В ОБЕИХ языковых версиях
+# (X.md + X.ru.md). Страж doc-conventions краснеет, если у файла из списка
+# нет пары. www-синк читает ЭТОТ файл (никаких зеркал-констант в репе сайта).
+# Исключение = строка, закомментированная '#' с причиной.
+auth
+batteries
+errors
+extractors
+handlers-response
+middleware
+overview
+README
+roadmap
+routing
+serving
+static-files
+websocket

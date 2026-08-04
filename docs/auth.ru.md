@@ -2,11 +2,12 @@
 
 [English](auth.md) | **Русский**
 
-Строительные блоки auth — extractors и middleware, не собственный фреймворк:
-extractors заголовков `Bearer`/`BasicAuth`, `JwtClaims[T]` поверх HS256 JWT
-из `std` (Polaris оборачивает его, не переизобретает никакую криптографию),
-extractor `CookieJar` + хелпер `Set-Cookie`, и **скелет** сессий (эффект
-`SessionStore` + in-memory handler + middleware `session`).
+Строительные блоки auth — extractors и промежуточные обработчики, не
+собственный фреймворк: extractors заголовков `Bearer`/`BasicAuth`,
+`JwtClaims[T]` поверх HS256 JWT из `std` (Polaris оборачивает его, не
+переизобретает никакую криптографию), extractor `CookieJar` + хелпер
+`Set-Cookie`, и **скелет** сессий (эффект `SessionStore` + обработчик в
+памяти + промежуточный обработчик `session`).
 
 Исходник: [`src/auth.nv`](../src/auth.nv).
 
@@ -93,13 +94,14 @@ test "auth: require_jwt middleware guard + JwtAuth.claims_at[T] inside the handl
 `JwtAuth.new(secret)` строит HS256-верификатор. Два способа применения,
 которые компонуются, а не мешают друг другу:
 
-- `require_jwt(auth) Time -> Middleware` — middleware-проверка: отклоняет
-  любой запрос, чей `Authorization: Bearer` не прошёл проверку подписи или
-  `exp`/`nbf`, с `401` + `WWW-Authenticate: Bearer`; проверенные запросы
-  пропускает без изменений. Часы приходят из эффекта `Time` — в production
-  реальные часы (ambient default-хендлер), в тестах —
+- `require_jwt(auth) Time -> Middleware` — проверка в виде промежуточного
+  обработчика: отклоняет любой запрос, чей `Authorization: Bearer` не
+  прошёл проверку подписи или `exp`/`nbf`, с `401` +
+  `WWW-Authenticate: Bearer`; проверенные запросы пропускает без изменений.
+  Часы приходят из эффекта `Time` — в production реальные часы (ambient
+  default-обработчик), в тестах —
   `with Time = th.fixed_ms(now_ms) { ... }` (как выше).
-- `auth.claims_at[T](req, now_ms)` — вызов внутри хендлера (turbofish,
+- `auth.claims_at[T](req, now_ms)` — вызов внутри обработчика (turbofish,
   метод-уровневый generic), извлекающий + проверяющий + декодирующий
   типизированные claims в `T`. Этому по-прежнему нужны **явные** часы
   (`now_ms`), не `Time`: он выполняется внутри реального тела `Handler`
@@ -167,7 +169,7 @@ test "auth: session assigns + persists a session id via cookie" {
 ```
 
 `session(cfg) Random -> Middleware` гарантирует, что каждый запрос
-доходит до хендлера со значением `session_id`, доступным **по каналу
+доходит до обработчика со значением `session_id`, доступным **по каналу
 path-параметров** — читайте через `req.param("session_id")`, тем же
 каналом, что используют `{name}`-сегменты пути. Запрос без cookie сессии
 получает свежий id (16 случайных байт, hex-encoded через эффект `Random`),
@@ -179,11 +181,11 @@ eager-сохранение пустой сессии и `Set-Cookie` с безо
 учебниковый случай подмены ресурса — production подключает Redis/базу
 данных, тесты — in-memory (или самописный double), оба через
 `with SessionStore = ... { ... }` вокруг диспетчеризации.
-`memory_session_store(ttl_ms)` — единственная встроенная фабрика-хендлер
+`memory_session_store(ttl_ms)` — единственная встроенная фабрика-обработчик
 скелета: `HashMap` под `Mutex` (fiber-safe), lazy TTL-вытеснение при
-`load`, часы читает из эффекта `Time` изнутри самого хендлера (никакого
+`load`, часы читает из эффекта `Time` изнутри самого обработчика (никакого
 `now_ms` в поверхности `SessionStore` больше нет). В отличие от
-`Time`/`Log`, у `SessionStore` **нет ambient default-хендлера** — это
+`Time`/`Log`, у `SessionStore` **нет ambient default-обработчика** — это
 ресурс, который production обязан подключить явно, точно как
 `mock_http()`/`real_http()`, а не всегда-безопасный дефолт вроде stdout.
 `SessionData` — плоский `str → str` key/value

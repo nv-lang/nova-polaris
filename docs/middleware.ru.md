@@ -17,7 +17,7 @@ fiber-модели Nova нет async-сигнала готовности как 
 
 - [Канон-форма: `middleware(fn(req, next))`](#канон-форма-middlewarefnreq-next)
 - [`Router.@use` и порядок](#routeruse-и-порядок)
-- [`@then`: композиция двух middleware](#then-композиция-двух-middleware)
+- [`@then`: композиция двух промежуточных обработчиков](#then-композиция-двух-промежуточных-обработчиков)
 - [Router `@use` и `@nest`](#router-use-и-nest)
 - [Что оборачивается](#что-оборачивается)
 - [Пишем свой — в стиле батареек](#пишем-свой--в-стиле-батареек)
@@ -31,7 +31,7 @@ fiber-модели Nova нет async-сигнала готовности как 
 export fn middleware(f fn(ServerRequest, Handler) -> ServerResponse) -> Middleware
 ```
 
-Строим middleware из **одного плоского замыкания** — без вложенной
+Строим промежуточный обработчик из **одного плоского замыкания** — без вложенной
 церемонии `fn(next) -> Handler`. `next` — обычное значение `Handler`:
 вызываем напрямую (`next(req)`), выполняем код до/после него, либо
 коротко замыкаем, вернув свой ответ без вызова вовсе.
@@ -76,16 +76,16 @@ test "middleware: canon middleware(fn(req, next)) form; first .use() call is out
 первым** во время запроса (`r.use(a); r.use(b)` → поток запроса
 `a → b → handler`) — это настоящая семантика `chi` (`chi`'шный `chain()`
 строит `mws[0]` самым внешним слоем), то же правило, которому следует
-Express для `app.use(a); app.use(b)`. Слои накапливаются на роутере и
-запекаются в хендлер каждого route'а **в момент регистрации** (`@route`/
+Express для `app.use(a); app.use(b)`. Слои накапливаются на маршрутизаторе и
+запекаются в обработчик каждого route'а **в момент регистрации** (`@route`/
 `@get`/…/`@nest` — все сходятся в одной точке вставки) — одна обёртка
 замыканием на route при setup'е, а не одна на запрос.
 
 **Оборачиваются только routes, зарегистрированные *после* `.use()`** —
-то же правило, что документирует `chi`: добавляйте middleware до routes,
-которые они должны покрывать.
+то же правило, что документирует `chi`: добавляйте промежуточные обработчики
+до routes, которые они должны покрывать.
 
-## `@then`: композиция двух middleware
+## `@then`: композиция двух промежуточных обработчиков
 
 ```nova
 test "middleware: @then composes two middlewares into one (same order as two .use() calls)" {
@@ -101,7 +101,7 @@ test "middleware: @then composes two middlewares into one (same order as two .us
 `a.then(b).apply(h) == a.apply(b.apply(h))` — ровно эквивалентно
 `r.use(a); r.use(b)`. Полезно, чтобы собрать одно переиспользуемое
 значение `Middleware` из нескольких меньших (общий «стек», который вы
-передаёте нескольким роутерам), вместо повторения последовательности
+передаёте нескольким маршрутизаторам), вместо повторения последовательности
 `.use()` в каждом месте.
 
 ## Router `@use` и `@nest`
@@ -110,7 +110,7 @@ test "middleware: @then composes two middlewares into one (same order as two .us
 в `r` через тот же путь регистрации, что использует `@route` — так что
 **текущие** слои `r` оборачивают и routes из `sub`, **снаружи** тех слоёв,
 что уже были у `sub` в момент его собственной регистрации. Вложение одного
-и того же суб-роутера в двух разных родителей не приводит к
+и того же суб-маршрутизатора в двух разных родителей не приводит к
 перекрёстному загрязнению — `@nest` никогда не мутирует `sub` (value-
 семантика), так что каждый родитель получает свою независимо обёрнутую
 копию.
@@ -119,8 +119,8 @@ test "middleware: @then composes two middlewares into one (same order as two .us
 
 | Зарегистрировано через | Оборачивается `.use()`? |
 |---|---|
-| Хендлеры методов route'а (`@get`/`@post`/…) | Да |
-| `MethodRouter.@fallback` (per-route переопределение 405) | Да — и если у route нет собственного fallback, но слои есть, *дефолтный* `405 + Allow` материализуется и тоже оборачивается, так что, например, CORS-preflight `OPTIONS` на GET-only route всё равно видит middleware |
+| Обработчики методов route'а (`@get`/`@post`/…) | Да |
+| `MethodRouter.@fallback` (per-route переопределение 405) | Да — и если у route нет собственного fallback, но слои есть, *дефолтный* `405 + Allow` материализуется и тоже оборачивается, так что, например, CORS-preflight `OPTIONS` на GET-only route всё равно видит промежуточный обработчик |
 | `Router.@fallback` (глобальный 404) | **Нет** — это не зарегистрированный «route» в дереве, поэтому у wrap-at-registration нет для него точки входа; ведёт себя как `route_layer` из Axum, а не как `.layer()` на весь `Service` |
 
 ## Пишем свой — в стиле батареек
@@ -128,15 +128,15 @@ test "middleware: @then composes two middlewares into one (same order as two .us
 Каждая батарейка из [batteries.md](batteries.ru.md) — это fluent-конфиг,
 заканчивающийся билдером `@middleware()`, который оборачивает канон-форму
 `middleware(...)` — это и есть рекомендуемая форма для вашего собственного
-middleware: небольшой конфиг-значение, метод-билдер и верхнеуровневая
+промежуточного обработчика: небольшой конфиг-значение, метод-билдер и верхнеуровневая
 `_apply`-функция, на которую делегирует замыкание (держим набор захвата
 каждого замыкания ровно тем, что нужно, один уровень вложенности).
 
 ## Связанные документы
 
-**Полный пример:** [`examples/04-middleware`](../examples/04-middleware) — свой middleware, `@then`, порядок layers, `log`+`ratelimit`, реально запущенные.
+**Полный пример:** [`examples/04-middleware`](../examples/04-middleware) — свой промежуточный обработчик, `@then`, порядок layers, `log`+`ratelimit`, реально запущенные.
 
 - [routing.md](routing.ru.md) — сами `Router.@route`/`@nest`
 - [batteries.md](batteries.ru.md) — cors/compress/log/ratelimit, все построены так же
-- [auth.md](auth.ru.md) — `require_jwt`/`session`, ещё два middleware
+- [auth.md](auth.ru.md) — `require_jwt`/`session`, ещё два промежуточных обработчика
 - [`src/middleware.nv`](../src/middleware.nv), [`src/middleware_test.nv`](../src/middleware_test.nv)
