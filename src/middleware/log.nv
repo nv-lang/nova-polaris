@@ -32,9 +32,11 @@
 // bare `Log` — collided (same-CU bare-name lookup, this package's own
 // documented failure class, see `ServerPolicy`'s banner in
 // `net/config.nv`) with the new ambient `Log` EFFECT (`log.nv`, `polaris`
-// root) once introduced. Renamed to `AccessLog` (parallel to its
-// `Cors`/`RateLimit`/`Compression` siblings — a feature-named config, not a
-// generic `Log`); the config's own former `emit` field + `@sink(f)` setter
+// root) once introduced. Renamed to `AccessLog` (parallel to its `Cors`
+// sibling — a feature-named config, not a generic `Log`; the other two
+// original siblings this pattern was named after have since been collapsed
+// to bare functions, [M-ratelimit-compression-flatten-to-default-args]);
+// the config's own former `emit` field + `@sink(f)` setter
 // (an independent hand-rolled copy of the SAME sink pattern `background.nv`
 // and `net/config.nv` also had) are gone — `log_apply` below calls
 // `Log.info(...)` directly, tests intercept via
