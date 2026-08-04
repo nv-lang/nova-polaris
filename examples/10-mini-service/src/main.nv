@@ -35,7 +35,7 @@ fn jwt_secret() -> []u8 => "mini-service-demo-secret".bytes()
 fn demo_now() -> u64 => 4_000_000_000 // see examples/05-auth for why a fixed clock
 
 fn mint_token(username str) -> str {
-    mut fields HashMap[str, JsonValue] = HashMap[str, JsonValue].new()
+    mut fields IndexMap[str, JsonValue] = IndexMap[str, JsonValue].new()
     fields.insert("sub", JsonValue.str(username))
     fields.insert("exp", JsonValue.num(5_000_000_000.0))
     Jwt.encode_hs256(jwt_secret(), JsonValue.object(fields))
