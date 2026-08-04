@@ -3,9 +3,13 @@
 **English** | [Русский](batteries.ru.md)
 
 Four ready-made [`Middleware`](middleware.md) implementations, each its own
-module, each a fluent config type ending in `@middleware()` (or a
-same-named free function — `cors(cfg)`, `compression(cfg)`, `logger(cfg)`,
-`ratelimit(cfg)`) you hand to `Router.@use`.
+module, each built by a plain function you hand to `Router.@use`.
+`cors`/`logger` sit behind a value-config type + a **private** `@middleware()`
++ a **public**, same-named free function (`cors(cfg)`, `logger(cfg)`) — one
+public entry point, the config type stays for its many-field, chainable
+shape. `compression`/`ratelimit` skip the config type entirely — scalar
+params with defaults are the whole surface (`compression(...)`,
+`ratelimit(...)`).
 
 | Battery | Module | Semantics of |
 |---|---|---|
@@ -59,7 +63,7 @@ combination is always a caller bug (D325), never live network input.
 ```nova
 test "batteries: compress — gzip only above min_size and when the client accepts it" {
     mut r = Router.new()
-    r.use(compression(Compression.new()))
+    r.use(compression())
     consume sb = StringBuilder.new()
     mut i = 0
     while i < 100 { sb.append("the quick brown fox jumps over the lazy dog; "); i += 1 }
@@ -73,8 +77,11 @@ test "batteries: compress — gzip only above min_size and when the client accep
 }
 ```
 
-`Compression.new()` defaults to a 1024-byte minimum size and the default
-gzip level (`@min_size(n)`/`@level(l)` to tune). Skipped automatically —
+`compression(min_size: int = 1024, level: CompressLevel = CompressLevel.default())`
+— defaults to a 1024-byte minimum size and the default gzip level
+(`compression(min_size: 4096)`, `compression(level: CompressLevel.best())` to
+tune; default-valued params are always passed by name). Skipped
+automatically —
 never a bug to layer it everywhere — when: the response is already
 streaming (a chunk producer wins the wire), the body is under `min_size`,
 the response already carries `Content-Encoding`, the content-type isn't on
@@ -130,7 +137,7 @@ into the same `with Time = ..., Log = ... { ... }` block freely.
 test "batteries: ratelimit — burst within capacity passes, then 429 + Retry-After" {
     with Time = th.fixed_ms(0) {
         mut r = Router.new()
-        r.use(ratelimit(RateLimit.new(1, 1.0)))
+        r.use(ratelimit(1, 1.0))
         r.get("/x", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, "ok"))!!
         assert(route_once(r, get_req("/x")).status_code() == 200)
         ro second = route_once(r, get_req("/x"))
@@ -140,14 +147,17 @@ test "batteries: ratelimit — burst within capacity passes, then 429 + Retry-Af
 }
 ```
 
-`RateLimit.new(capacity, per_sec)` — `capacity` tokens of burst, refilled at
-`per_sec` tokens/second, wrapping `std`'s `TokenBucket`. Default is **one
-global bucket** (chi's `Throttle` shape); `@per_client(true)` keys separate
-buckets by the first `X-Forwarded-For` hop (same trust caveat as `log`'s
-`RealIP`). A rejected request gets `429` + `Retry-After: <ceil(1/per_sec)>`
-seconds — the earliest moment a token can exist again. Like `log`, building
-the middleware carries a `Time` effect row (the bucket refills against
-`Monotonic.now()`); tests fix the clock the same way.
+`ratelimit(capacity int, per_sec f64, per_client bool = false)` — `capacity`
+tokens of burst, refilled at `per_sec` tokens/second, wrapping `std`'s
+`TokenBucket`. Default is **one global bucket** (chi's `Throttle` shape);
+`ratelimit(2, 1.0, per_client: true)` keys separate buckets by the first
+`X-Forwarded-For` hop (same trust caveat as `log`'s `RealIP`;
+default-valued params are always passed by name — `per_client: true`, never
+a bare third positional). A rejected request gets `429` +
+`Retry-After: <ceil(1/per_sec)>` seconds — the earliest moment a token can
+exist again. Like `log`, building the middleware carries a `Time` effect row
+(the bucket refills against `Monotonic.now()`); tests fix the clock the same
+way.
 
 > **Known simplification**: the bucket is not lock-protected — under true
 > M:N parallelism two fibers can in principle both witness the last token.

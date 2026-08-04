@@ -3,9 +3,13 @@
 [English](batteries.md) | **Русский**
 
 Четыре готовые реализации [`Middleware`](middleware.ru.md), каждая — свой
-модуль, каждая — fluent-конфиг, заканчивающийся `@middleware()` (или
-одноимённой свободной функцией — `cors(cfg)`, `compression(cfg)`,
-`logger(cfg)`, `ratelimit(cfg)`), которую передают в `Router.@use`.
+модуль, каждая строится простой функцией, которую передают в `Router.@use`.
+`cors`/`logger` стоят за типом-конфигом + **приватным** `@middleware()` +
+**публичной** одноимённой свободной функцией (`cors(cfg)`, `logger(cfg)`) —
+одна публичная точка входа, тип-конфиг остаётся ради своей многополевой,
+чейнящейся формы. `compression`/`ratelimit` вовсе обходятся без
+типа-конфига — скалярные параметры со значениями по умолчанию и есть вся
+поверхность (`compression(...)`, `ratelimit(...)`).
 
 | Батарейка | Модуль | Семантика |
 |---|---|---|
@@ -60,7 +64,7 @@ Preflight-запросы `OPTIONS` (с `Access-Control-Request-Method`) отве
 ```nova
 test "batteries: compress — gzip only above min_size and when the client accepts it" {
     mut r = Router.new()
-    r.use(compression(Compression.new()))
+    r.use(compression())
     consume sb = StringBuilder.new()
     mut i = 0
     while i < 100 { sb.append("the quick brown fox jumps over the lazy dog; "); i += 1 }
@@ -74,10 +78,12 @@ test "batteries: compress — gzip only above min_size and when the client accep
 }
 ```
 
-`Compression.new()` по умолчанию — минимальный размер 1024 байта и дефолтный
-уровень gzip (`@min_size(n)`/`@level(l)` для настройки). Пропускается
-автоматически — никогда не баг наложить его везде — когда: ответ уже
-стримится (chunk-продюсер выигрывает провод), тело меньше `min_size`, ответ
+`compression(min_size: int = 1024, level: CompressLevel = CompressLevel.default())`
+— по умолчанию минимальный размер 1024 байта и дефолтный уровень gzip
+(`compression(min_size: 4096)`, `compression(level: CompressLevel.best())`
+для настройки; параметры со значением по умолчанию всегда передаются по
+имени). Пропускается автоматически — никогда не баг наложить его везде —
+когда: ответ уже стримится (chunk-продюсер выигрывает провод), тело меньше `min_size`, ответ
 уже несёт `Content-Encoding`, content-type не в allowlist для сжатия
 (`text/*` + json/xml/javascript-подобные подтипы), либо клиентский
 `Accept-Encoding` не допускает gzip. `Vary: accept-encoding` добавляется
@@ -134,7 +140,7 @@ chi'шного `RealIP`: этот заголовок контролируетс�
 test "batteries: ratelimit — burst within capacity passes, then 429 + Retry-After" {
     with Time = th.fixed_ms(0) {
         mut r = Router.new()
-        r.use(ratelimit(RateLimit.new(1, 1.0)))
+        r.use(ratelimit(1, 1.0))
         r.get("/x", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(StatusCode.OK, "ok"))!!
         assert(route_once(r, get_req("/x")).status_code() == 200)
         ro second = route_once(r, get_req("/x"))
@@ -144,12 +150,14 @@ test "batteries: ratelimit — burst within capacity passes, then 429 + Retry-Af
 }
 ```
 
-`RateLimit.new(capacity, per_sec)` — `capacity` токенов burst'а,
-пополняемых со скоростью `per_sec` токенов в секунду, поверх `TokenBucket`
-из `std`. По умолчанию — **один глобальный bucket** (форма chi'шного
-`Throttle`); `@per_client(true)` разделяет buckets по первому хопу
-`X-Forwarded-For` (тот же предупреждающий комментарий про доверие, что и у
-`RealIP` в `log`). Отклонённый запрос получает `429` +
+`ratelimit(capacity int, per_sec f64, per_client bool = false)` —
+`capacity` токенов burst'а, пополняемых со скоростью `per_sec` токенов в
+секунду, поверх `TokenBucket` из `std`. По умолчанию — **один глобальный
+bucket** (форма chi'шного `Throttle`); `ratelimit(2, 1.0, per_client: true)`
+разделяет buckets по первому хопу `X-Forwarded-For` (тот же предупреждающий
+комментарий про доверие, что и у `RealIP` в `log`; параметры со значением
+по умолчанию всегда передаются по имени — `per_client: true`, никогда
+голым третьим позиционным). Отклонённый запрос получает `429` +
 `Retry-After: <ceil(1/per_sec)>` секунд — ближайший момент, когда токен
 может появиться снова. Как и `log`, построение промежуточного обработчика
 несёт эффект-ряд `Time` (bucket пополняется относительно
