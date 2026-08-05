@@ -11,7 +11,9 @@ handlers-response
 middleware
 overview
 README
-roadmap
+# roadmap — внутренний план развития пакета; не публикуется до v0.1
+#   (жанр «планы» на сайт не идёт, как docs/plans самой nova; см.
+#   site-conventions #release-neutrality). Файл остаётся в репозитории.
 routing
 serving
 static-files
