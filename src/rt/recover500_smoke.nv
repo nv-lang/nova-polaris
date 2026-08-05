@@ -78,7 +78,7 @@ test "servernet: recover-500 — handler panic -> 500, connection stays alive fo
 
         with Fail[TimeoutError] = |_e| {} {
             supervised(timeout: 5.to_seconds()) {
-                spawn {
+                spawn consume lst {
                     match lst.accept() {
                         Ok(consume srv) => {
                             consume s = srv
@@ -99,6 +99,7 @@ test "servernet: recover-500 — handler panic -> 500, connection stays alive fo
                         }
                         Err(_) => { server_ok_tx.try_send(false) }
                     }
+                    lst.close()
                 }
                 spawn {
                     match TcpStream.connect(SocketAddr.loopback(port)) {
@@ -121,7 +122,6 @@ test "servernet: recover-500 — handler panic -> 500, connection stays alive fo
                 }
             }
         }
-        lst.close()
         server_ok_tx.close()
         r1_tx.close()
         r2_tx.close()

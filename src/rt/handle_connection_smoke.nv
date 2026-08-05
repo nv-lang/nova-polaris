@@ -49,7 +49,7 @@ test "servernet: live GET /health round-trip over loopback" {
         ro (got_tx, got_rx) = Channel.new(1)
         supervised {
             // Server fiber: accept one connection, serve it through handle_connection.
-            spawn {
+            spawn consume lst {
                 match lst.accept() {
                     Ok(consume srv) => {
                         consume s = srv
@@ -60,6 +60,7 @@ test "servernet: live GET /health round-trip over loopback" {
                     }
                     Err(_) => ()
                 }
+                lst.close()
             }
             // Client fiber: connect, send a raw GET, read the response.
             spawn {
@@ -80,7 +81,6 @@ test "servernet: live GET /health round-trip over loopback" {
                 }
             }
         }
-        lst.close()
         ok_tx.close()
         got_tx.close()
         ro server_ok = ok_rx.try_recv() ?? false

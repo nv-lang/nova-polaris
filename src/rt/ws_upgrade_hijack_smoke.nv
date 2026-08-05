@@ -90,7 +90,7 @@ test "servernet: WebSocketUpgrade.on_upgrade hijack is wired live through serve_
             // ── server fiber: accept ONE connection, drive it through the
             //    REAL keep-alive connection driver — this is the wiring
             //    under test, not a hand-rolled loop. ────────────────────────
-            spawn {
+            spawn consume lst {
                 match lst.accept() {
                     Ok(consume srv) => {
                         consume s = srv
@@ -101,6 +101,7 @@ test "servernet: WebSocketUpgrade.on_upgrade hijack is wired live through serve_
                     }
                     Err(_) => { server_ok_tx.try_send(false) }
                 }
+                lst.close()
             }
             // ── client fiber: raw WS wire protocol (simulates a browser),
             //    verbatim shape of ws/rt/socket_echo_smoke.nv's own client. ──
@@ -160,7 +161,6 @@ test "servernet: WebSocketUpgrade.on_upgrade hijack is wired live through serve_
                 }
             }
         }
-        lst.close()
         server_ok_tx.close()
         client_ok_tx.close()
         assert(server_ok_rx.try_recv() ?? false)

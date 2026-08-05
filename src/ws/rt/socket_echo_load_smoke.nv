@@ -87,7 +87,7 @@ fn run_echo_pair(done_tx ChanWriter[bool]) Net -> () {
             ro (cli_tx, cli_rx) = Channel.new(1)
             supervised {
                 // ── server fiber: accept, handshake, echo 3 messages, close ──
-                spawn {
+                spawn consume lst {
                     match lst.accept() {
                         Ok(consume srv) => {
                             consume s = srv
@@ -130,6 +130,7 @@ fn run_echo_pair(done_tx ChanWriter[bool]) Net -> () {
                         }
                         Err(_) => { srv_tx.try_send(false) }
                     }
+                    lst.close()
                 }
                 // ── client fiber: raw WS wire protocol (simulates a browser) ──
                 spawn {
@@ -181,7 +182,6 @@ fn run_echo_pair(done_tx ChanWriter[bool]) Net -> () {
                     }
                 }
             }
-            lst.close()
             srv_tx.close()
             cli_tx.close()
             done_tx.try_send((srv_rx.try_recv() ?? false) && (cli_rx.try_recv() ?? false))

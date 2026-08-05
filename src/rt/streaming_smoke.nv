@@ -43,7 +43,7 @@ test "servernet: live SSE streaming round-trip over loopback" {
         supervised {
             // Server fiber: accept one connection, stream the SSE response
             // through handle_connection's incremental writer.
-            spawn {
+            spawn consume lst {
                 match lst.accept() {
                     Ok(consume srv) => {
                         consume s = srv
@@ -54,6 +54,7 @@ test "servernet: live SSE streaming round-trip over loopback" {
                     }
                     Err(_) => ()
                 }
+                lst.close()
             }
             // Client fiber: connect, send a raw GET, read the WHOLE streamed
             // response (loop until EOF — the server closes after the last
@@ -83,7 +84,6 @@ test "servernet: live SSE streaming round-trip over loopback" {
                 }
             }
         }
-        lst.close()
         ok_tx.close()
         got_tx.close()
         ro server_ok = ok_rx.try_recv() ?? false

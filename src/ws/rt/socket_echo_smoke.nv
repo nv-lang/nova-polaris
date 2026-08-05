@@ -71,7 +71,7 @@ test "ws: live handshake + echo (text, fragmented text, binary, ping) + close, o
 
         supervised {
             // ── server fiber: accept, handshake, echo loop ────────────────
-            spawn {
+            spawn consume lst {
                 match lst.accept() {
                     Ok(consume srv) => {
                         consume s = srv
@@ -113,6 +113,7 @@ test "ws: live handshake + echo (text, fragmented text, binary, ping) + close, o
                     }
                     Err(_) => { server_ok_tx.try_send(false) }
                 }
+                lst.close()
             }
             // ── client fiber: raw WS wire protocol (simulates a browser) ──
             spawn {
@@ -190,7 +191,6 @@ test "ws: live handshake + echo (text, fragmented text, binary, ping) + close, o
                 }
             }
         }
-        lst.close()
         server_ok_tx.close()
         client_ok_tx.close()
         assert(server_ok_rx.try_recv() ?? false)
