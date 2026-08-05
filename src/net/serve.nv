@@ -62,9 +62,15 @@ import polaris.{serialize_response_head, encode_chunk, encode_chunk_end}
 //    decision: "первый отказ сразу, дальше не чаще раза в 5s сводкой K за
 //    N сек" — a connection-flood must not become a log-flood). `count`/
 //    `window_start_ms` are `AtomicInt` cells (`#share`, same recipe
-//    `middleware/log.nv`'s `AccessLog.counter` uses) — `RejectLog` is a
-//    `value` record so every copy (one per `detach`-ed connection, same
-//    shape as `inflight`/`policy` below) aliases the SAME two cells. ─────────
+//    `middleware/log.nv`'s `@middleware()`-closure counter uses since
+//    [№354]) — `RejectLog` is a private (non-`#stable`) internal `value`
+//    record, so mixing runtime-counter fields into it does not carry the
+//    rule-38 public-API concern `AccessLog` had; every copy (one per
+//    `detach`-ed connection, same shape as `inflight`/`policy` below)
+//    aliases the SAME two cells via direct `@count`/`@window_start_ms`
+//    method calls — no local copy needed, `@record()`'s own field access
+//    IS the mut root ([№355], same as `middleware/ratelimit.nv`'s
+//    `@bucket_for` calling `@mutex.lock()` directly). ─────────────────────
 
 const REJECT_LOG_WINDOW_MS int = 5000
 
@@ -85,24 +91,22 @@ fn RejectLog.new() -> RejectLog => { count: AtomicInt.new(0), window_start_ms: A
 // `middleware/ratelimit.nv`'s own token bucket documents for its unlocked
 // table) flushes a summary line and starts a fresh window.
 fn RejectLog @record() Time {
-    mut count = @count
-    mut window_start = @window_start_ms
     ro now_ns = Monotonic.now().nanos() as int
-    ro n = count.fetch_add(1) + 1
+    ro n = @count.fetch_add(1) + 1
     if n == 1 {
-        window_start.store(now_ns)
+        @window_start_ms.store(now_ns)
         // Admission-503/anti-flood (owner decision 2026-08-01,
         // `[M-log-levels-standard-plus-threshold]`): a rejected connection
         // is a client-visible 503 + Retry-After, not an operator emergency —
         // `warn`, not `error` (kept for panics/crashes only).
         Log.warn("rejected connection: max_inflight admission limit reached")
     } else {
-        ro started_ns = window_start.load()
+        ro started_ns = @window_start_ms.load()
         ro elapsed_ms = (now_ns - started_ns) / 1_000_000
         if elapsed_ms >= REJECT_LOG_WINDOW_MS {
-            match window_start.compare_exchange(started_ns, now_ns) {
+            match @window_start_ms.compare_exchange(started_ns, now_ns) {
                 Ok(_) => {
-                    ro flushed = count.swap(0)
+                    ro flushed = @count.swap(0)
                     Log.warn("rejected ${flushed} in last ${elapsed_ms}ms")
                 }
                 Err(_) => ()
