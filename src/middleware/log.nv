@@ -105,8 +105,8 @@ export fn logger(cfg AccessLog) Time -> Middleware => cfg.middleware()
 
 // `next` arrives as a PARAM — `next(req)` is the safe D52 param call-through
 // ([M-16]: a CAPTURED Handler must not be called by identifier; the flat
-// `middleware(...)` closure above only captures `cfg` and passes `next`
-// through as its own closure param).
+// `middleware(...)` closure above captures `cfg` and `counter` and passes
+// `next` through as its own closure param).
 fn log_apply(cfg AccessLog, mut counter AtomicInt, next Handler, req ServerRequest) Time -> ServerResponse {
     ro t0 = Monotonic.now()
     ro id = if cfg.request_id { request_id_of(counter, req) } else { "" }
