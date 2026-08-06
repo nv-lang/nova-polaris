@@ -13,10 +13,12 @@
 // generated from an `AtomicInt` counter built alongside the closure in
 // `@middleware()` (same shape as `ratelimit.nv`'s `BucketTable` — the
 // counter is captured once per built middleware and threaded through
-// `log_apply` -> `request_id_of` -> `fresh_id` as a `mut` in-out param on
-// every request, D246 canon (a) genuinely in-out; `AtomicInt` is itself a
-// `#share` cell (D415), so every copy threaded through stays the same
-// counter). `RealIP` is OPT-IN (chi's own caveat: `X-Forwarded-For` is
+// `log_apply` -> `request_id_of` as a `mut` in-out param on every request,
+// D246 canon (a) genuinely in-out; `AtomicInt` is itself a `#share` cell
+// (D415), so every hop threaded through stays pointed at the same counter
+// (Plan 248 wave 3: `AtomicInt` is now value-inside/`#no_copy` — the `mut`
+// param is a pointer to the caller's slot, not a copy, D246/Plan 184 P10).
+// `RealIP` is OPT-IN (chi's own caveat: `X-Forwarded-For` is
 // client-controlled — only enable behind a proxy you trust to overwrite it).
 //
 // Effect note: the wrapped handler's BODY calls `Time`-row AND `Log`-row
@@ -130,20 +132,31 @@ fn log_apply(cfg AccessLog, mut counter AtomicInt, next Handler, req ServerReque
 }
 
 // Incoming `X-Request-Id` (if header-safe and short) or a fresh `req-<n>`.
-fn request_id_of(mut counter AtomicInt, req ServerRequest) -> str {
-    match req.header("x-request-id") {
-        Some(id) => if safe_token(id) { id } else { fresh_id(counter) }
-        None     => fresh_id(counter)
-    }
-}
-
+//
 // `counter` arrives as a top-level `mut` param, threaded straight from
 // `@middleware()`'s closure ([№354] — no longer a field reached through the
 // readonly `cfg` chain, so no local copy is needed to satisfy D33's
 // mut-root rule: the param binding itself IS the root). `AtomicInt` being a
 // `#share` cell (D415) is what keeps every hop of the thread — and every
 // closure invocation across requests — pointed at the SAME counter.
-fn fresh_id(mut counter AtomicInt) -> str {
+//
+// Plan 248 (wave 3, D447 #no_copy): the fresh-id computation used to live in
+// a separate `fresh_id(mut counter AtomicInt)` helper, called from both
+// match arms below. Inlined here (early-`return` on the safe-token path,
+// fall-through otherwise) because `#no_copy`'s borrow check (wave 2) is
+// conservative about a SECOND hop: `request_id_of` legitimately borrows
+// `counter` (a `mut` param, D246/Plan 184 P10 — pointer, not a copy), but
+// forwarding that SAME borrow on as `fresh_id`'s own argument counts as an
+// escape under the current (documented v1) rule, which doesn't verify what
+// the callee-of-the-callee does with it — a real, if narrow, gap (separate
+// from this fix; the borrow-vs-copy distinction itself is sound, only
+// multi-hop borrow chains aren't recognized yet). Removing the extra hop
+// sidesteps it without touching the compiler further; behavior unchanged.
+fn request_id_of(mut counter AtomicInt, req ServerRequest) -> str {
+    match req.header("x-request-id") {
+        Some(id) => if safe_token(id) { return id }
+        None     => {}
+    }
     ro n = counter.fetch_add(1) + 1
     "req-${n}"
 }
