@@ -44,7 +44,7 @@ module middleware.ratelimit
 
 import polaris.{Handler, middleware, Middleware, ServerRequest, ServerResponse}
 import std.concurrency.rate_limiter.{TokenBucket}
-import std.collections.hashmap.{HashMap}
+import std.collections.hash_map.{HashMap}
 import std.runtime.sync.{Mutex}
 
 /// `capacity` tokens of burst, refilled at `per_sec` tokens/second. Keying

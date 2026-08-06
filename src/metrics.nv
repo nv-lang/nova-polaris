@@ -58,7 +58,7 @@
 module polaris
 
 import std.runtime.sync.{Mutex}
-import std.collections.hashmap.{HashMap}
+import std.collections.hash_map.{HashMap}
 
 /// In-memory metrics table: name-keyed counters (`int`) and gauges
 /// (last-write-wins `f64`), both fully guarded by ONE `Mutex` for every
