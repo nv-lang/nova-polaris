@@ -154,8 +154,9 @@ test "serving: BackgroundTasks run AFTER the response, in FIFO order" {
 }
 ```
 
-FastAPI's `BackgroundTasks`, built as pure composition of `spawn`/`supervised`
-— no new runtime primitive. `bg.add(task)` queues a `fn() -> ()`, FIFO;
+FastAPI's `BackgroundTasks`, built entirely on the language's own
+`spawn`/`supervised` — no special machinery underneath: background tasks
+behave exactly like ordinary concurrent Nova code. `bg.add(task)` queues a `fn() -> ()`, FIFO;
 `resp.background(bg)` (a `mut @background(tasks) -> @` fluent setter on
 `ServerResponse`) attaches the collector to a response. The connection
 driver (`handle_connection`/`serve_connection`) calls `@drain()` **after**

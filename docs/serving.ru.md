@@ -159,8 +159,9 @@ test "serving: BackgroundTasks run AFTER the response, in FIFO order" {
 }
 ```
 
-Аналог FastAPI'шного `BackgroundTasks`, собранный как чистая композиция
-`spawn`/`supervised` — ни одного нового примитива рантайма. `bg.add(task)`
+Аналог FastAPI'шного `BackgroundTasks`, собранный целиком на языковых
+`spawn`/`supervised` — никакой особой машинерии под капотом: фоновые задачи
+ведут себя ровно как обычный конкурентный код Nova. `bg.add(task)`
 ставит в очередь `fn() -> ()`, FIFO; `resp.background(bg)` (fluent-сеттер
 `mut @background(tasks) -> @` на `ServerResponse`) прикрепляет коллектор к
 ответу. Драйвер соединения (`handle_connection`/`serve_connection`)
