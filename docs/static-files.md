@@ -33,6 +33,11 @@ fn static_fixture() -> EmbeddedDir =>
 
 test "static-files: serve embedded assets — mime, ETag, index resolution, 404" {
     mut r = Router.new()
+    // static_handler(fs, cfg, param):
+    //   fs    — the file source (EmbeddedDir here; DirFs for live-reload dev)
+    //   cfg   — Static config; Static.new() = defaults (index.html, no Cache-Control)
+    //   param — the {*...} route-parameter NAME the handler reads the path from:
+    //           the route says {*path}, so the literal "path" is passed here
     r.get("/assets/{*path}", static_handler(static_fixture(), Static.new(), "path"))!!
 
     ro txt = route_once(r, get_req("/assets/notes/readme.txt"))
