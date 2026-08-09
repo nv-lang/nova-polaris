@@ -105,12 +105,12 @@ test "servernet: recover-500 — handler panic -> 500, connection stays alive fo
                     match TcpStream.connect(SocketAddr.loopback(port)) {
                         Ok(consume conn) => {
                             consume cli = conn
-                            ro _ = cli.write_str("GET /boom HTTP/1.1\r\nHost: localhost\r\n\r\n")
+                            ro _ = cli.write("GET /boom HTTP/1.1\r\nHost: localhost\r\n\r\n")
                             match cli.read_bytes(4096) {
                                 Ok(chunk) => { r1_tx.try_send(chunk) }
                                 Err(_)    => ()
                             }
-                            ro _ = cli.write_str("GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+                            ro _ = cli.write("GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
                             match cli.read_bytes(4096) {
                                 Ok(chunk) => { r2_tx.try_send(chunk) }
                                 Err(_)    => ()

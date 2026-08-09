@@ -26,7 +26,7 @@ import std.net.{TcpListener, TcpStream, SocketAddr, real_net}
 import polaris.{Router, ServerResponse}
 import polaris.serve.{handle_connection_router}
 
-fn routes() -> Router {
+fn health_routes() -> Router {
     mut r = Router.new()
     r.get("/health", fn(req ServerRequest) -> ServerResponse => ServerResponse.text(200, "ok"))!!
     r.fallback(fn(req ServerRequest) -> ServerResponse => ServerResponse.text(404, "nope"))
@@ -53,7 +53,7 @@ test "servernet: live GET /health round-trip over loopback" {
                 match lst.accept() {
                     Ok(consume srv) => {
                         consume s = srv
-                        match handle_connection_router(s, routes()) {
+                        match handle_connection_router(s, health_routes()) {
                             Ok(_)  => { ok_tx.try_send(true) }
                             Err(_) => ()
                         }
@@ -67,7 +67,7 @@ test "servernet: live GET /health round-trip over loopback" {
                 match TcpStream.connect(SocketAddr.loopback(port)) {
                     Ok(consume conn) => {
                         consume cli = conn
-                        match cli.write_str("GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n") {
+                        match cli.write("GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n") {
                             Ok(_)  => ()
                             Err(_) => ()
                         }

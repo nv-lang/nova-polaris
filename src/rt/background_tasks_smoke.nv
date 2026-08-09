@@ -75,7 +75,7 @@ test "servernet: BackgroundTasks attached to a live response actually drains" {
                 match TcpStream.connect(SocketAddr.loopback(port)) {
                     Ok(consume conn) => {
                         consume cli = conn
-                        match cli.write_str("GET /notify HTTP/1.1\r\nHost: localhost\r\n\r\n") {
+                        match cli.write("GET /notify HTTP/1.1\r\nHost: localhost\r\n\r\n") {
                             Ok(_)  => ()
                             Err(_) => ()
                         }

@@ -49,6 +49,19 @@ test "ratelimit(): CONCURRENCY connections at once against ONE shared bucket tab
         // own 2-client admission test documents/uses this same recipe).
         ro (port_tx, port_rx) = Channel[u16].new(CONCURRENCY)
         ro (results_tx, results_rx) = Channel[int].new(CONCURRENCY)
+        // E_FIBER_UNSAFE_CALL: `limited_routes()` registers the `ratelimit`
+        // middleware, whose handler-body call chain (`rl_apply` →
+        // `client_key` → …) reaches a mutation the M:N-safety checker can't
+        // prove guarded (D446 Ф.8-НОВАЯ П.2, not proven ⇒ unsafe) — that
+        // chain is real (the shared `BucketTable` mutation this smoke
+        // exists to exercise), but it only FIRES per-request, never during
+        // Router construction itself. Built ONCE here, before any `spawn`,
+        // and captured `ro` into the server fiber below — exactly the
+        // diagnostic's own suggested fix. Building a fresh `Router` VALUE
+        // does not copy the shared, `Mutex`-guarded bucket table the
+        // `ratelimit()` middleware closure captures internally, so this
+        // does not weaken the concurrency the test proves.
+        ro routes = limited_routes()
         with Fail[TimeoutError] = |_e| {} {
             // ONE level of spawn nesting — every client is a DIRECT sibling
             // of the server spawn under this SAME `supervised` block (the
@@ -72,14 +85,14 @@ test "ratelimit(): CONCURRENCY connections at once against ONE shared bucket tab
                     // every one of the CONCURRENCY connections is admitted
                     // at the socket layer and the ONLY thing gating a 429 is
                     // `ratelimit.nv`'s own bucket table.
-                    serve_router(lst, limited_routes(), ServerPolicy.new().max_inflight(CONCURRENCY))
+                    serve_router(lst, routes, ServerPolicy.new().max_inflight(CONCURRENCY))
                 }
                 for _i in 0..CONCURRENCY {
                     spawn {
                         ro port = match port_rx.recv() { Some(p) => p, None => 0 as u16 }
                         match TcpStream.connect(SocketAddr.loopback(port)) {
                             Ok(consume cli) => {
-                                ro _ = cli.write_str("GET /x HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+                                ro _ = cli.write("GET /x HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
                                 match cli.read_bytes(4096) {
                                     Ok(chunk) => {
                                         ro s = unsafe { chunk.to_str_unchecked() }
