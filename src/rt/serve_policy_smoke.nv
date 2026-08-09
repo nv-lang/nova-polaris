@@ -44,9 +44,9 @@ fn echo_routes() -> Router {
 
 test "serve_router(): keep-alive — two requests over one connection, honest close on client header" {
     with Net = real_net() {
-        ro (port_tx, port_rx) = Channel.new(1)
-        ro (r1_tx, r1_rx) = Channel.new(1)
-        ro (r2_tx, r2_rx) = Channel.new(1)
+        ro (port_tx, port_rx) = Channel[u16].new(1)
+        ro (r1_tx, r1_rx) = Channel[[]u8].new(1)
+        ro (r2_tx, r2_rx) = Channel[[]u8].new(1)
         with Fail[TimeoutError] = |_e| {} {
             supervised(timeout: 3.to_seconds()) {
                 spawn {
@@ -97,8 +97,8 @@ test "serve_router(): keep-alive — two requests over one connection, honest cl
 
 test "serve_router(): declared Content-Length over the configured cap -> 413" {
     with Net = real_net() {
-        ro (port_tx, port_rx) = Channel.new(1)
-        ro (got_tx, got_rx) = Channel.new(1)
+        ro (port_tx, port_rx) = Channel[u16].new(1)
+        ro (got_tx, got_rx) = Channel[[]u8].new(1)
         with Fail[TimeoutError] = |_e| {} {
             supervised(timeout: 3.to_seconds()) {
                 spawn {
@@ -140,8 +140,8 @@ test "serve_router(): declared Content-Length over the configured cap -> 413" {
 
 test "serve_router(): chunked request body decodes and reaches the handler" {
     with Net = real_net() {
-        ro (port_tx, port_rx) = Channel.new(1)
-        ro (got_tx, got_rx) = Channel.new(1)
+        ro (port_tx, port_rx) = Channel[u16].new(1)
+        ro (got_tx, got_rx) = Channel[[]u8].new(1)
         with Fail[TimeoutError] = |_e| {} {
             supervised(timeout: 3.to_seconds()) {
                 spawn {
@@ -196,9 +196,9 @@ test "serve_router(): over max_inflight -> 503, first connection still served" {
         // do their own `port_rx.recv()` — a capacity-1 channel would starve
         // the second receiver forever (each value is delivered to exactly
         // one receiver).
-        ro (port_tx, port_rx) = Channel.new(2)
-        ro (a_ready_tx, a_ready_rx) = Channel.new(1)
-        ro (b_got_tx, b_got_rx) = Channel.new(1)
+        ro (port_tx, port_rx) = Channel[u16].new(2)
+        ro (a_ready_tx, a_ready_rx) = Channel[bool].new(1)
+        ro (b_got_tx, b_got_rx) = Channel[[]u8].new(1)
         ro policy = ServerPolicy.new().max_inflight(1).idle_deadline(5.to_seconds())
         with Fail[TimeoutError] = |_e| {} {
             supervised(timeout: 3.to_seconds()) {
@@ -267,7 +267,7 @@ test "serve_router(): over max_inflight -> 503, first connection still served" {
 
 test "serve_router(): first admission reject logs immediately via Log" {
     with Net = real_net() {
-        ro (port_tx, port_rx) = Channel.new(2)
+        ro (port_tx, port_rx) = Channel[u16].new(2)
         mut lines []str = []
         ro policy = ServerPolicy.new().max_inflight(1)
         with Log = capture_log(lines) {

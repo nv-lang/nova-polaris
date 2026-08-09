@@ -77,8 +77,8 @@ module rt._repro_serve_408_codegen
 //
 // test "serve_router(): incomplete headers past header_deadline -> 408" {
 //     with Net = real_net() {
-//         ro (port_tx, port_rx) = Channel.new(1)
-//         ro (got_tx, got_rx) = Channel.new(1)
+//         ro (port_tx, port_rx) = Channel[u16].new(1)
+//         ro (got_tx, got_rx) = Channel[[]u8].new(1)
 //         ro policy = ServerPolicy.new().header_deadline(150.to_millis()).idle_deadline(150.to_millis())
 //         with Fail[TimeoutError] = |_e| {} {
 //             supervised(timeout: 3.to_seconds()) {

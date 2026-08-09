@@ -61,9 +61,9 @@ test "servernet: recover-500 — handler panic -> 500, connection stays alive fo
         ro port = lst.local_port()
         assert(port > 0)
 
-        ro (server_ok_tx, server_ok_rx) = Channel.new(1)
-        ro (r1_tx, r1_rx) = Channel.new(1)
-        ro (r2_tx, r2_rx) = Channel.new(1)
+        ro (server_ok_tx, server_ok_rx) = Channel[bool].new(1)
+        ro (r1_tx, r1_rx) = Channel[[]u8].new(1)
+        ro (r2_tx, r2_rx) = Channel[[]u8].new(1)
         // `Log.error(...)` (raw op, `run_request`) runs on the SAME fiber
         // that calls it — the same fiber that owns `policy` itself
         // (constructed inside this test's OWN server fiber below), so the
@@ -73,7 +73,7 @@ test "servernet: recover-500 — handler panic -> 500, connection stays alive fo
         // `{ptr, len}`, `vtables.h`) and would hit the SAME
         // `E_CHANNEL_UNSOUND_ELEM_TYPE` class `run_request`'s own banner
         // documents for `ServerResponse` — no need to even try sending it.
-        ro (log_ok_tx, log_ok_rx) = Channel.new(1)
+        ro (log_ok_tx, log_ok_rx) = Channel[bool].new(1)
         ro router = recover_routes()
 
         with Fail[TimeoutError] = |_e| {} {

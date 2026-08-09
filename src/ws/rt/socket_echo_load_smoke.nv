@@ -83,8 +83,8 @@ fn run_echo_pair(done_tx ChanWriter[bool]) Net -> () {
         Ok(consume lst0) => {
             consume lst = lst0
             ro port = lst.local_port()
-            ro (srv_tx, srv_rx) = Channel.new(1)
-            ro (cli_tx, cli_rx) = Channel.new(1)
+            ro (srv_tx, srv_rx) = Channel[bool].new(1)
+            ro (cli_tx, cli_rx) = Channel[bool].new(1)
             supervised {
                 // ── server fiber: accept, handshake, echo 3 messages, close ──
                 spawn consume lst {
@@ -193,7 +193,7 @@ fn run_echo_pair(done_tx ChanWriter[bool]) Net -> () {
 test "ws: N=8 parallel echo pairs (spawn-cycle) — each upgrade + 3 msgs + clean close, over loopback" {
     with Net = real_net() {
         ro n = pair_count()
-        ro (done_tx, done_rx) = Channel.new(n)
+        ro (done_tx, done_rx) = Channel[bool].new(n)
         supervised {
             for _ in 0..n {
                 spawn { run_echo_pair(done_tx) }

@@ -47,8 +47,8 @@ test "ratelimit(): CONCURRENCY connections at once against ONE shared bucket tab
         // client spawn does its OWN `port_rx.recv()`, and a `Channel` value
         // is delivered to exactly ONE receiver (`serve_policy_smoke.nv`'s
         // own 2-client admission test documents/uses this same recipe).
-        ro (port_tx, port_rx) = Channel.new(CONCURRENCY)
-        ro (results_tx, results_rx) = Channel.new(CONCURRENCY)
+        ro (port_tx, port_rx) = Channel[u16].new(CONCURRENCY)
+        ro (results_tx, results_rx) = Channel[int].new(CONCURRENCY)
         with Fail[TimeoutError] = |_e| {} {
             // ONE level of spawn nesting — every client is a DIRECT sibling
             // of the server spawn under this SAME `supervised` block (the

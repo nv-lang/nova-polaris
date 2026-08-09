@@ -66,8 +66,8 @@ test "ws: live handshake + echo (text, fragmented text, binary, ping) + close, o
         ro port = lst.local_port()
         assert(port > 0)
 
-        ro (server_ok_tx, server_ok_rx) = Channel.new(1)
-        ro (client_ok_tx, client_ok_rx) = Channel.new(1)
+        ro (server_ok_tx, server_ok_rx) = Channel[bool].new(1)
+        ro (client_ok_tx, client_ok_rx) = Channel[bool].new(1)
 
         supervised {
             // ── server fiber: accept, handshake, echo loop ────────────────
