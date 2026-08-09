@@ -45,8 +45,8 @@ test "servernet: live GET /health round-trip over loopback" {
         // Plan 173.3 (D415 §2): fiber results flow back through channels, not
         // outer-`mut` capture (`mut got`/`mut server_ok` written from spawn →
         // E_CONCURRENT_MUT_CAPTURE). Each channel has exactly one producer.
-        ro (ok_tx, ok_rx) = Channel.new(1)
-        ro (got_tx, got_rx) = Channel.new(1)
+        ro (ok_tx, ok_rx) = Channel[bool].new(1)
+        ro (got_tx, got_rx) = Channel[[]u8].new(1)
         supervised {
             // Server fiber: accept one connection, serve it through handle_connection.
             spawn consume lst {

@@ -38,8 +38,8 @@ test "servernet: live SSE streaming round-trip over loopback" {
         // Plan 173.3 (D415 §2): fiber results flow back through channels, not
         // outer-`mut` capture — see handle_connection_smoke.nv for the same
         // pattern this smoke mirrors.
-        ro (ok_tx, ok_rx) = Channel.new(1)
-        ro (got_tx, got_rx) = Channel.new(1)
+        ro (ok_tx, ok_rx) = Channel[bool].new(1)
+        ro (got_tx, got_rx) = Channel[[]u8].new(1)
         supervised {
             // Server fiber: accept one connection, stream the SSE response
             // through handle_connection's incremental writer.

@@ -53,7 +53,7 @@ type ReadAttempt enum
     | Errored
 
 fn read_attempt(mut s TcpStream, deadline Monotonic) Net Time -> ReadAttempt {
-    ro (tx, rx) = Channel.new(1)
+    ro (tx, rx) = Channel[[]u8].new(1)
     // D441: Fail-обработчик исполняется в файбере падающей операции —
     // голый `mut`-флаг здесь был бы гонкой (E_HANDLER_MUT_CAPTURE_IN_FIBER),
     // AtomicBool из белого списка синхронизированных типов.

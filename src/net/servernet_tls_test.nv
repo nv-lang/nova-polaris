@@ -46,17 +46,15 @@ fn fixed_handler(_raw []u8) -> ServerResponse =>
 test "smoke: TLS loopback client -> handle_connection_tls -> decrypted HTTP response" {
     with Net = real_net() {
         // `(tx, rx)` tuple destructure — `net/policy.nv`'s own precedent
-        // (`ro (tx, rx) = Channel.new(1)`), not `handshake_test.nv`'s
+        // (`ro (tx, rx) = Channel[[]u8].new(1)`), not `handshake_test.nv`'s
         // `ch_port.tx`/`ch_port.rx` field-access form: capturing the SENDER/
         // RECEIVER halves individually (each `ro`, one per fiber) is a
         // proven-safe cross-`spawn` capture; capturing the shared
         // `Channel` record itself (`mut`, needed for the field-chain form)
-        // hits `E_CONCURRENT_MUT_CAPTURE` — the checker's static sketch
-        // pass does not resolve a bare `Channel[u16]` type-argument
-        // annotation ("unresolved type name `Channel`"), so neither the
-        // implicit- nor explicit-type variant of that form crosses a
-        // `spawn` boundary on this compiler.
-        ro (tx, rx) = Channel.new(1)
+        // hits `E_CONCURRENT_MUT_CAPTURE`. Canon per D79
+        // (`spec/decisions/06-concurrency.md`): `Channel[T].new(cap)`, T
+        // explicit — `E_CHANNEL_NEW_BARE` (№513) now rejects the bare form.
+        ro (tx, rx) = Channel[u16].new(1)
         supervised {
             // Server fiber: bind, hand the port over, one accept, TLS
             // handshake, ONE request through `handle_connection_tls`.

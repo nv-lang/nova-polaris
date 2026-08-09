@@ -82,8 +82,8 @@ test "servernet: WebSocketUpgrade.on_upgrade hijack is wired live through serve_
         ro port = lst.local_port()
         assert(port > 0)
 
-        ro (server_ok_tx, server_ok_rx) = Channel.new(1)
-        ro (client_ok_tx, client_ok_rx) = Channel.new(1)
+        ro (server_ok_tx, server_ok_rx) = Channel[bool].new(1)
+        ro (client_ok_tx, client_ok_rx) = Channel[bool].new(1)
         ro router = ws_routes()
 
         supervised {

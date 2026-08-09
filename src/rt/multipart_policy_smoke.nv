@@ -50,8 +50,8 @@ fn post_multipart_req(path str, boundary str, body []u8) -> []u8 {
 
 test "serve_router(): multipart part over ServerPolicy.max_multipart_part_size -> 413 (full serve path)" {
     with Net = real_net() {
-        ro (port_tx, port_rx) = Channel.new(1)
-        ro (got_tx, got_rx) = Channel.new(1)
+        ro (port_tx, port_rx) = Channel[u16].new(1)
+        ro (got_tx, got_rx) = Channel[[]u8].new(1)
         with Fail[TimeoutError] = |_e| {} {
             supervised(timeout: 3.to_seconds()) {
                 spawn {
@@ -89,8 +89,8 @@ test "serve_router(): multipart part over ServerPolicy.max_multipart_part_size -
 
 test "serve_router(): multipart part within the SAME reduced ServerPolicy.max_multipart_part_size -> 200 (proves the value is actually threaded, not just always-reject)" {
     with Net = real_net() {
-        ro (port_tx, port_rx) = Channel.new(1)
-        ro (got_tx, got_rx) = Channel.new(1)
+        ro (port_tx, port_rx) = Channel[u16].new(1)
+        ro (got_tx, got_rx) = Channel[[]u8].new(1)
         with Fail[TimeoutError] = |_e| {} {
             supervised(timeout: 3.to_seconds()) {
                 spawn {

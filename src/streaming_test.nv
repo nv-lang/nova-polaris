@@ -101,25 +101,20 @@ test "server: empty stream (zero chunks) still writes head + terminator" {
 // shape — see docs/channels.md.
 //
 // The channel carries `int` indices, NOT the `[]u8`/`str` chunk payload
-// itself: `Channel.new(n)`'s element-type inference (docs/channels.md "T is
-// inferred from the first send/recv") only reliably resolves to `int`
-// end-to-end today — a non-`int` first `send` (`str`, or `[]u8` as tried here
-// first) silently mistypes the channel's C element field as `nova_int` and
-// bit-reinterprets the payload pointer through it (found live via this test:
-// str failed loud as a CC-FAIL pointer/struct mismatch, `[]u8` "compiled" via
-// C's implicit pointer→int conversion but is NOT a sound fix), and the
-// documented turbofish escape hatch `Channel[str].new(n)` crashes the compiler
-// (`internal error … [P67-LEGACY] Ident \`Channel\` not in var_types`, isolated
-// repro confirmed pre-existing/unrelated to server-streaming). Both reported
-// separately (`[M-channel-generic-elem-type]`, backlog-followups.md) — out of
-// this marker's scope (compiler-codegen, not std/http). `int` events here are
-// a safe, still-realistic stand-in (e.g. "row N changed" signals mapped to
-// pre-rendered payloads is a normal SSE shape too).
+// itself — an earlier pass here hit `[M-channel-generic-elem-type]` (the
+// bare, un-parameterized constructor's element-type inference only reliably
+// resolved `int` end-to-end; a non-`int` first `send` silently mistyped the
+// channel's C element field). Canon per D79 (`spec/decisions/06-concurrency.md`) is now
+// the explicit `Channel[T].new(cap)` form below — `E_CHANNEL_NEW_BARE`
+// (№513) rejects the bare form outright, so that failure mode no longer
+// applies. `int` events here remain a safe, still-realistic stand-in
+// (e.g. "row N changed" signals mapped to pre-rendered payloads is a normal
+// SSE shape too).
 
 fn chan_events() -> [][]u8 => [sse_event("msg", "first"), sse_event("msg", "second")]
 
 test "server: streaming response driven by a ChanReader producer" {
-    ro { tx, rx } = Channel.new(4)
+    ro { tx, rx } = Channel[int].new(4)
     tx.send(0)
     tx.send(1)
     tx.close()

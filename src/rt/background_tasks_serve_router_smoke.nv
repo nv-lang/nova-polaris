@@ -36,9 +36,9 @@ fn routes(ran_tx ChanWriter[bool]) -> Router {
 
 test "[M-serve-router-background-tasks-not-drained]: serve_router() drains BackgroundTasks after a keep-alive response" {
     with Net = real_net() {
-        ro (port_tx, port_rx) = Channel.new(1)
-        ro (got_tx, got_rx) = Channel.new(1)
-        ro (ran_tx, ran_rx) = Channel.new(1)
+        ro (port_tx, port_rx) = Channel[u16].new(1)
+        ro (got_tx, got_rx) = Channel[[]u8].new(1)
+        ro (ran_tx, ran_rx) = Channel[bool].new(1)
         with Fail[TimeoutError] = |_e| {} {
             supervised(timeout: 10.to_seconds()) {
                 spawn {
