@@ -1,17 +1,18 @@
-# nova.toml — nova-polaris: Polaris ⭐, серверный веб-фреймворк Nova.
+# nova.toml — nova-polaris: Polaris ⭐, the server-side web framework for Nova.
 #
-# Слои 2-3 плана 222 (hyper/axum-модель): Router/handlers, extractors,
-# IntoResponse, middleware + батарейки (cors/static/compress/log/ratelimit),
-# auth, websocket, serve. Ядро протокола (типы/клиент/транспорт) живёт в
-# пакете `http` (репа nova-http) — единственная содержательная зависимость;
-# пользователю достаточно `import polaris.{Router, get, post}` (http-типы
-# приходят транзитивно), кому нужен только клиент — `import http`.
+# Layers 2-3 of plan 222 (the hyper/axum model): Router/handlers, extractors,
+# IntoResponse, middleware plus batteries (cors/static/compress/log/ratelimit),
+# auth, websocket, serve. The protocol core (types/client/transport) lives in
+# the `http` package (repository nova-http) — the one substantive dependency;
+# a user needs only `import polaris.{Router, get, post}` (the http types arrive
+# transitively), and whoever wants the client alone writes `import http`.
 #
-# Извлечение из nova-http (server/servernet/serve/ws/static/middleware/…)
-# — план 222, «РЕШЕНИЕ ВЛАДЕЛЬЦА 2026-07-24: раскол УТВЕРЖДЁН — ДВЕ РЕПЫ».
-# Layout: src/ canon (Plan 195), `module polaris` — root peers; подпапки —
-# folder-module peers (`module polaris.extract`, `module polaris.net`, …),
-# D78: module-путь НЕ включает `src`.
+# Extracted out of nova-http (server/servernet/serve/ws/static/middleware/…)
+# by plan 222: "OWNER'S DECISION 2026-07-24: the split is APPROVED — TWO
+# REPOSITORIES".
+# Layout: src/ canon (Plan 195), `module polaris` — root peers; subdirectories
+# are folder-module peers (`module polaris.extract`, `module polaris.net`, …).
+# D78: the module path does NOT include `src`.
 
 [package]
 name = "polaris"
@@ -23,20 +24,23 @@ repository = "https://github.com/nv-lang/nova-polaris"
 [lib]
 src = "src"
 
-# D420: релизная форма — git+semver (теги vX.Y.Z, caret); nova.lock.toml фиксирует
-# тег+commit. Локальная разработка — ТОЛЬКО через некоммитимый nova.override.toml
-# (закоммиченный [replace] ломает чистый клон, E_REPLACE_IN_MANIFEST).
+# D420: the release form is git+semver (tags vX.Y.Z, caret semantics);
+# nova.lock.toml pins the exact tag+commit. Local development goes ONLY through
+# the never-committed nova.override.toml — a committed [replace] breaks a clean
+# clone (E_REPLACE_IN_MANIFEST).
 #
-# `compress` (Ф.A-1, 2026-07-25): `middleware/compress.nv` (gzip response
-# compression, migrated from nova-http) imports it directly — same
-# leaf-dependency shape as `http`'s own `compress` dep (Plan 205 Ф.2).
+# `compress` (phase A-1, 2026-07-25): `middleware/compress.nv` (gzip response
+# compression, migrated from nova-http) imports it directly — the same
+# leaf-dependency shape as `http`'s own `compress` dep (Plan 205 phase 2).
 #
-# `tls` (A-V13, owner decision 2026-08-02: "tls для поляриса до релиза"):
-# `serve/serve_tls.nv`/`net/servernet_tls.nv` import it directly for the
-# HTTPS server path (`TlsStream`/`ServerConfig`) — same leaf-dependency
-# shape as `http`'s own `tls` dep (`nova-http/nova.toml`), NOT only
-# transitive through `http` (polaris code itself references `tls.*`).
+# `tls` (A-V13, owner decision 2026-08-02: "tls for polaris before the
+# release"): `serve/serve_tls.nv` and `net/servernet_tls.nv` import it directly
+# for the HTTPS server path (`TlsStream`/`ServerConfig`) — the same
+# leaf-dependency shape as `http`'s own `tls` dep (`nova-http/nova.toml`), NOT
+# only transitively through `http` (polaris code itself references `tls.*`).
 [dependencies]
-http = { git = "https://github.com/nv-lang/nova-http", version = "0.1" }  # A-V7 2026-07-30: тег v0.1.1 перевыпущен, dev-форма path снята (план D420 исполнен); локальная разработка — через nova.override.toml
+# A-V7 2026-07-30: tag v0.1.1 re-issued, the dev `path` form dropped (D420
+# carried out); local development goes through nova.override.toml.
+http = { git = "https://github.com/nv-lang/nova-http", version = "0.1" }
 compress = { git = "https://github.com/nv-lang/nova-compress", version = "0.1" }
 tls = { git = "https://github.com/nv-lang/nova-tls", version = "0.1" }
