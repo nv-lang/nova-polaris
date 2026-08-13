@@ -30,3 +30,12 @@ if git diff --cached --name-only | grep -q '^spec/decisions/'; then
   fi
 fi
 exit 0
+
+# Норма об инвариантах (docs/dev/conventions-governance.md в репе nova) —
+# ВСЕОБЪЕМЛЮЩАЯ по требованию владельца 2026-08-08: действует и в пакетных
+# репах. Страж роздан scripts/tools/sync-guards-to-packages.sh, расхождение
+# копий ловит гейт nova.
+ROOT="$(git rev-parse --show-toplevel)"
+if [ -f "$ROOT/scripts/guards/check-invariant-discipline.sh" ]; then
+    bash "$ROOT/scripts/guards/check-invariant-discipline.sh" "$ROOT" HEAD || exit 1
+fi
