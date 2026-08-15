@@ -536,12 +536,21 @@ export fn serve(consume listener TcpListener, handler fn([]u8) -> ServerResponse
             Ok(consume stream) => {
                 detach consume stream {
                     match inflight.try_acquire() {
-                        // `p` (the Permit) lives in this connection's scope —
-                        // `@cleanup` (D432) releases the slot on scope exit,
-                        // success OR panic; the rejected branch relies on the
-                        // same auto-`@cleanup` to close `stream`.
+                        // `p` (the Permit) is bound by a MATCH ARM PATTERN, and
+                        // D432 auto-cleanup does NOT cover those: it covers bare
+                        // `consume X = e;` bindings only (D432 section 2 --
+                        // destructuring patterns stay under plain D133), and the
+                        // codegen emits no cleanup for a pattern binding at all.
+                        // The comment that used to stand here claimed the
+                        // opposite, and the slot was never returned: after
+                        // `max_inflight` connections the semaphore was empty
+                        // forever and the server stopped serving. Found by the
+                        // checker fix of nova registry #667 (2026-08-15), which
+                        // turned that silence into an honest D133-not-consumed.
+                        // Release explicitly, on every path out of the arm.
                         Some(consume p) => {
                             ro _ = serve_connection(stream, handler, policy)
+                            p.release()
                         }
                         None => {
                             reject_log.record()
