@@ -378,6 +378,20 @@ export fn serve_connection(consume stream TcpStream, handler fn([]u8) -> ServerR
             }
         }
     }
+    // #672 form (1) (nova registry 221.1, owner's ruling 2026-08-21): this
+    // function takes the connection by `consume`, so this function closes it.
+    // It used to just fall off the end. D432 auto-`@cleanup` looked like it
+    // covered that, and does not: the codegen arms a cleanup only for a bare
+    // `consume X = e` binding with an ident pattern, never for a consume
+    // PARAMETER -- so the caller disarmed its own flag when it handed the
+    // socket over and the callee released nothing. The single-shot sibling
+    // `handle_connection` (servernet.nv:74) has always closed on both paths;
+    // this keep-alive replacement simply forgot to. `run_request`'s ws-hijack
+    // branch already ASSUMES this close exists ("still gets its own
+    // `@close()` from the caller's trailing cleanup -- rc-aware, so that is a
+    // harmless decrement"): the `@share()` copy handed to the hook holds its
+    // own rc unit, so this is a decrement, not a double close.
+    stream.close()
     final_result
 }
 
@@ -570,4 +584,9 @@ export fn serve(consume listener TcpListener, handler fn([]u8) -> ServerResponse
             }
         }
     }
+    // #672 form (1): the accept loop was handed the listener by `consume`, so
+    // the accept loop closes it. Same omission as `serve_connection` above and
+    // the same reason it stayed invisible -- a consume parameter gets no
+    // auto-`@cleanup` from the codegen.
+    listener.close()
 }

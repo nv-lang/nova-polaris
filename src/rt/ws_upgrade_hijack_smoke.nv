@@ -51,7 +51,7 @@ fn ws_routes() -> Router {
     r.get("/ws", fn(req ServerRequest) -> ServerResponse {
         match WebSocketUpgrade.from_request(req) {
             Ok(up) => up.on_upgrade(fn(ws WebSocket) Net -> () {
-                mut w = ws
+                consume w = ws
                 mut running = true
                 while running {
                     match w.recv() {

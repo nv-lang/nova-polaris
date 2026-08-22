@@ -621,7 +621,13 @@ test "static-files: serve embedded assets — mime, ETag, index resolution, 404"
 fn ws_echo_handler(req ServerRequest) -> ServerResponse {
     match WebSocketUpgrade.from_request(req) {
         Ok(up) => up.on_upgrade(fn(sock WebSocket) Net -> () {
-            mut ws = sock
+            // #672 form (5) (nova registry 221.1, 2026-08-22): the callback OWNS
+            // the socket -- it closes it below -- so the rebinding is a MOVE and
+            // must say so (D180 rule 6). It read `mut` until now only because a
+            // closure parameter carried no TYPE into the linearity walk, so the
+            // rule had nothing to fire on. A fn TYPE has nowhere to write
+            // `consume`, which is why the parameter itself stays unqualified.
+            consume ws = sock
             mut running = true
             while running {
                 match ws.recv() {
