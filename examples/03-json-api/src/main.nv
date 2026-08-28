@@ -80,13 +80,24 @@ fn NoteBody.from_body(req ServerRequest) -> Result[NoteBody, HttpError] {
 // each field declares its OWN source via its own type (`TodoIdParam`=path,
 // `NoteQuery`=query, `NoteBody`=body), the bundle's `from_request` just
 // splices them in order — same hand-composed shape as `extract_test.nv`'s
-// `GetItemBundle`. `#impl(Reflect)` below is MANUAL, NOT derived — the
-// auto-derive field-walk through generic-wrapper field types is the known
-// `[M-reflect-derive-generic-wrapper-field-null-shape]` gap (P1,
-// `docs/plans/backlog-followups.md`) that forced the OLD hand-built
-// `req_shape`; the manual impl produces the SAME role-tagged shape
-// (`PathParam`/`Query`/`Json` names — the convention `polaris.openapi`'s
-// emitter reads, plan §1.3 item 6) with zero compiler-bug exposure.
+// `GetItemBundle`.
+//
+// `#impl(Reflect)` below is MANUAL, and it stays manual — but NOT because of a
+// compiler gap. It used to cite the auto-derive field-walk through
+// generic-wrapper field types; that gap is CLOSED (backlog 2026-07-31, a
+// duplicate of registry №146) and re-proven by running on 2026-08-27: a record
+// of three wrapper-typed fields, all auto-derived, reflects as
+// `Record("Bundle", [("id", Record("IdParam", ..)), ..])` — the walk is
+// correct, no null shape.
+//
+// The real reason is permanent and semantic: this impl carries ROLE tags
+// (`PathParam` / `Query` / `Json`), and `polaris.openapi` keys on exactly those
+// names — see `src/openapi.nv`, `if name == "PathParam" || name == "Query" ||
+// name == "Json"`. Auto-derive would emit each field's TYPE name
+// (`TodoIdParam`, `NoteQuery`, `NoteBody`) instead, and the OpenAPI output
+// would lose the roles. Derive cannot know a role that is not in the type.
+// Audited under plan 221 A-V8 on 2026-08-27; the marker is dropped because it
+// marked no deferred work.
 type AddNoteReq value { ro id TodoIdParam, ro opts NoteQuery, ro note NoteBody }
 
 #impl(FromRequest)

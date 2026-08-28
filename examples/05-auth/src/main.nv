@@ -19,7 +19,7 @@ import std.io.{println}
 
 fn jwt_secret() -> []u8 => "example-secret-do-not-use-in-prod".bytes()
 
-// [M-example-fixed-clock]: `JwtAuth.claims_at` takes an explicit clock
+// DEMO CHOICE, not a workaround: `JwtAuth.claims_at` takes an explicit clock
 // (`now_ms u64`, no effect row — Handler stays effect-free, see docs/auth.md).
 // `require_jwt` itself now declares the `Time` effect (222.20 волна B) — a
 // real service just calls it under the ambient system clock; this demo
