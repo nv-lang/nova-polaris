@@ -553,22 +553,37 @@ export fn serve_connection(consume stream TcpStream, handler fn([]u8) -> ServerR
 // `rt/serve_graceful_shutdown_smoke.nv` (live socket, cancel at 300ms,
 // asserts serve() RETURNED) and the full src/net+src/rt run: PASS 11
 // FAIL 0.
-// The accept loop lives in its OWN function, and that is load-bearing, not
-// style: `inflight` is captured by the per-connection `detach` bodies, so the
-// codegen boxes it. Reading that boxed local AFTER a `supervised(cancel:)`
-// block whose park was a real uv `accept()` crashes with an access violation
-// in the fiber arena (registry #790, std-only repro; a TIMER park in the same
-// shape is fine, which is why probes with `sleep()` never caught it). With
-// the loop split out, `serve()`'s own body has no detach capture, and the
-// drain's `available_permits()` read below is a plain local read -- the same
-// workaround this file's banner recorded for the original defect 1: a
-// Semaphore is an opaque reference-counted handle, so the same object is
-// mutated either side of the call.
-fn serve_accept_loop(consume listener TcpListener, handler fn([]u8) -> ServerResponse, policy ServerPolicy, cancel_tok CancelToken, mut inflight Semaphore, mut reject_log RejectLog) Net Time Detach {
+// UNDONE 2026-08-29 later the same day: #790 is fixed in the compiler
+// (nova 3cf9d6aa0 -- the lazy detach box is NULL-guarded at post-site
+// reads), so the structural split is gone and the loop is inline again;
+// the smokes prove the drain's post-loop read on the merged shape.
+
+#stable(since = "0.1")
+export fn serve(consume listener TcpListener, handler fn([]u8) -> ServerResponse, policy ServerPolicy, stop Option[CancelToken] = None) Net Time Detach {
+    mut inflight = Semaphore.new(policy.max_inflight())
+    mut reject_log = RejectLog.new()
+    // A caller that passed no token still gets the same code path: a fresh
+    // token nobody holds simply never fires, so `serve()` loops forever as
+    // it always did. One shape, not two.
+    ro cancel_tok = match stop {
+        Some(tok) => tok
+        None => CancelToken.new()
+    }
+    // Explicit re-binding: with a defaulted parameter in the signature the
+    // checker loses track of consumption THROUGH the helper call and reports
+    // D133 'consumed on part of paths'; a bare consume-binding makes the
+    // transfer visible on every path.
+    consume lst = listener
+    // #790 FIXED (nova 3cf9d6aa0, 2026-08-29): the accept loop lives inline
+    // again. It was split into serve_accept_loop() as a structural workaround
+    // while reading a detach-boxed local after a uv-cancelled supervised
+    // block crashed; the compiler now NULL-guards the lazy box, proven by
+    // spec_tests standalone/m790_detach_box_unexecuted_site.nv and this
+    // file's own smokes.
     supervised(cancel: cancel_tok) {
     mut running = true
     while running {
-        match listener.accept() {
+        match lst.accept() {
             Ok(consume stream) => {
                 detach consume stream {
                     match inflight.try_acquire() {
@@ -616,29 +631,7 @@ fn serve_accept_loop(consume listener TcpListener, handler fn([]u8) -> ServerRes
         }
     }
     }
-    // #672 form (1): the accept loop was handed the listener by `consume`,
-    // so the accept loop closes it (a consume parameter gets no
-    // auto-`@cleanup` from the codegen).
-    listener.close()
-}
-
-#stable(since = "0.1")
-export fn serve(consume listener TcpListener, handler fn([]u8) -> ServerResponse, policy ServerPolicy, stop Option[CancelToken] = None) Net Time Detach {
-    mut inflight = Semaphore.new(policy.max_inflight())
-    mut reject_log = RejectLog.new()
-    // A caller that passed no token still gets the same code path: a fresh
-    // token nobody holds simply never fires, so `serve()` loops forever as
-    // it always did. One shape, not two.
-    ro cancel_tok = match stop {
-        Some(tok) => tok
-        None => CancelToken.new()
-    }
-    // Explicit re-binding: with a defaulted parameter in the signature the
-    // checker loses track of consumption THROUGH the helper call and reports
-    // D133 'consumed on part of paths'; a bare consume-binding makes the
-    // transfer visible on every path.
-    consume lst = listener
-    serve_accept_loop(lst, handler, policy, cancel_tok, inflight, reject_log)
+    lst.close()
 
     // Bounded drain. Every accepted connection holds one admission permit
     // for its whole life, so "all permits back" IS "no connection in
