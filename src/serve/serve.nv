@@ -43,9 +43,13 @@ export fn handle_connection_router(consume stream TcpStream, router Router) Net 
 /// (`[M-222.11-multipart-limits-not-wired-to-serverpolicy]`) actually reaches
 /// `Multipart.from_request` — see that fn's own doc-comment (`server.nv`)
 /// for the full channel.
+///
+/// `stop` (optional, keyword-only per D102): cancel it and the accept loop
+/// ends, accepted connections get `policy.graceful_drain()` to finish, and
+/// the call RETURNS. Omitted, the loop runs forever as before.
 #stable(since = "0.1")
-export fn serve_router(consume listener TcpListener, router Router, policy ServerPolicy) Net Time Detach {
-    serve(listener, router_callback_with_limits(router, policy.multipart_limits()), policy)
+export fn serve_router(consume listener TcpListener, router Router, policy ServerPolicy, stop Option[CancelToken] = None) Net Time Detach {
+    serve(listener, router_callback_with_limits(router, policy.multipart_limits()), policy, stop: stop)
 }
 
 /// `serve_router`, but taking the listen address as a string instead of an
@@ -56,9 +60,9 @@ export fn serve_router(consume listener TcpListener, router Router, policy Serve
 /// address or a bind failure (e.g. the port already in use) is returned as
 /// an `Err` value, never a panic.
 #stable(since = "0.1")
-export fn serve_addr(addr str, router Router, policy ServerPolicy) Net Time Detach -> Result[(), NetError] {
+export fn serve_addr(addr str, router Router, policy ServerPolicy, stop Option[CancelToken] = None) Net Time Detach -> Result[(), NetError] {
     ro sock = addr.to_socket_addr()?
     consume listener = TcpListener.bind(sock)?
-    serve_router(listener, router, policy)
+    serve_router(listener, router, policy, stop: stop)
     Ok(())
 }

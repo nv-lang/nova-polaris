@@ -1,0 +1,56 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// A-V9 — the stop token flows through the SUGAR layer too: serve_router()
+// forwards it to serve(), and cancelling it makes serve_router RETURN.
+//
+// The cancel here comes from a detached fiber, the same shape the serve()-level
+// smoke proves. Cancelling from INSIDE a connection handler (the showcase's
+// /shutdown endpoint) is a SEPARATE case: measured 2026-08-29, the accept loop
+// ends and the port closes, but the PROCESS then fails to exit — filed in the
+// nova registry with the isolation trail; this test deliberately does not
+// depend on that path.
+//
+// EXPECT_TIMEOUT_MS 30000
+
+module rt.serve_router_shutdown_smoke
+
+import std.net.{TcpListener, SocketAddr, real_net}
+import std.time.duration
+import polaris.{Router, ServerRequest, ServerResponse}
+import polaris.net.{ServerPolicy}
+import polaris.serve.{serve_router}
+
+fn routes() -> Router {
+    mut r = Router.new()
+    r.get("/health", fn(_req ServerRequest) -> ServerResponse {
+        ServerResponse.text(200, "ok")
+    })!!
+    r
+}
+
+test "serve_router(): the stop token passes through and the call returns" {
+    with Net = real_net() {
+        ro (done_tx, done_rx) = Channel[bool].new(1)
+        ro tok = CancelToken.new()
+        with Fail[TimeoutError] = |_e| () {
+            supervised(timeout: 15.to_seconds()) {
+                spawn {
+                    consume lst = match TcpListener.bind(SocketAddr.loopback(0)) {
+                        Ok(consume l) => l
+                        Err(_) => {
+                            ro _ = done_tx.try_send(false)
+                            return
+                        }
+                    }
+                    serve_router(lst, routes(), ServerPolicy.new(), stop: Some(tok))
+                    ro _ = done_tx.try_send(true)
+                }
+                detach {
+                    300.to_millis().sleep()
+                    tok.cancel("smoke: shutdown via the sugar layer")
+                }
+            }
+        };
+        ro got = done_rx.recv()
+        assert(got == Some(true))
+    }
+}

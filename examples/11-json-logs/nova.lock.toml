@@ -1,6 +1,6 @@
-# nova.lock.toml — сгенерирован автоматически (Plan 03.1 / D78).
-# Фиксирует точные версии зависимостей для воспроизводимых
-# сборок. Не редактируйте вручную; коммитьте в репозиторий.
+# nova.lock.toml — generated automatically (Plan 03.1 / D78).
+# Pins exact dependency versions for reproducible builds.
+# Do not edit by hand; commit this file to the repository.
 
 version = 1
 
@@ -9,14 +9,14 @@ name = "compress"
 source = "git"
 git = "https://github.com/nv-lang/nova-compress"
 pin = "version:>=0.1.0, <0.2.0"
-commit = "75919d9c89a0d52767d2d20ff342e69f50b6ad53"
+commit = "c4c387fdf145280b7253ede7bf992fe6fbb35359"
 
 [[package]]
 name = "http"
 source = "git"
 git = "https://github.com/nv-lang/nova-http"
 pin = "version:>=0.1.0, <0.2.0"
-commit = "1af06c18af0039a9afe0d6ee39a344ef877ebb29"
+commit = "53638fba444a1addfe8ab4af0a515d4cdb3e1acd"
 
 [[package]]
 name = "polaris"
@@ -28,4 +28,4 @@ name = "tls"
 source = "git"
 git = "https://github.com/nv-lang/nova-tls"
 pin = "version:>=0.1.0, <0.2.0"
-commit = "3003b64fe48ee4cbad0d5683f14c536b25d9b8e5"
+commit = "7fad86615a8cfa84c3e874fde5cc7e0532252d36"
