@@ -68,6 +68,9 @@ export type ServerPolicy value {
     max_inflight          int
     reject_with_503       bool
     max_requests_per_conn int
+    /// How long to wait for already-accepted connections to drain after the
+    /// accept loop stops. Zero means do not wait at all (hard stop).
+    graceful_drain Duration
     header_deadline       Duration
     read_deadline         Duration
     idle_deadline         Duration
@@ -119,6 +122,7 @@ export fn ServerPolicy.new() -> ServerPolicy => {
     max_inflight: 16,
     reject_with_503: true,
     max_requests_per_conn: 100,
+    graceful_drain: 5.to_seconds(),
     header_deadline: 5.to_seconds(),
     read_deadline: 5.to_seconds(),
     idle_deadline: 60.to_seconds(),
@@ -148,6 +152,13 @@ export fn ServerPolicy mut @reject_with_503(on bool) -> @ { @reject_with_503 = o
 /// `Connection` header.
 #stable(since = "0.1")
 export fn ServerPolicy @max_requests_per_conn() -> int => @max_requests_per_conn
+
+/// Drain deadline used on shutdown. After leaving the accept loop `serve()`
+/// waits for every issued admission slot to come back, but no longer than
+/// this; zero means do not wait (accepted connections die with the process).
+export fn ServerPolicy @graceful_drain() -> Duration => @graceful_drain
+
+export fn ServerPolicy mut @graceful_drain(d Duration) -> @ { @graceful_drain = d }
 
 #stable(since = "0.1")
 export fn ServerPolicy mut @max_requests_per_conn(n int) -> @ { @max_requests_per_conn = n }

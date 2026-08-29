@@ -1,0 +1,60 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// A-V9 / 222.22 — LIVE-socket proof that `serve()` finally has a shutdown knob.
+//
+// WHY THIS FILE EXISTS AT ALL. The knob was written on 2026-08-01 and reverted
+// whole, because four distinct compiler defects blocked every shape tried (they
+// are listed in `net/serve.nv`'s own banner). On 2026-08-29 all four were
+// re-measured with the reproducers from that banner and none reproduces, so the
+// work was redone — and redone in the BETTER shape those defects had ruled out:
+// `stop` is an OPTIONAL parameter, not a required 4th one, so `#stable(since =
+// "0.1")` stays honest and every existing call site keeps compiling untouched.
+//
+// WHAT IT PROVES, and it is the whole point: cancelling the token makes
+// `accept()` return, the loop exit, the bounded drain finish, and `serve()`
+// RETURN. A server that cannot be asked to stop is the gap this closes.
+//
+// WHY THE ASSERT IS ON A VALUE AND NOT ON "DID NOT HANG": without the cancel,
+// the same shape parks in `accept()` forever — measured 2026-08-29, a control
+// probe of this exact shape ran to an 8s kill with no output, against ~450ms
+// with the cancel. So the test asserts that `serve()` RETURNED (a `true` sent
+// after it), which a hang cannot fake.
+//
+// EXPECT_TIMEOUT_MS 30000
+
+module rt.serve_graceful_shutdown_smoke
+
+import std.net.{TcpListener, SocketAddr, real_net}
+import std.time.duration
+import polaris.{ServerResponse}
+import polaris.net.{ServerPolicy, serve}
+
+fn echo_handler(_body []u8) -> ServerResponse => ServerResponse.text(200, "ok")
+
+test "serve(): a cancelled stop token ends the accept loop and serve() returns" {
+    with Net = real_net() {
+        ro (done_tx, done_rx) = Channel[bool].new(1)
+        ro tok = CancelToken.new()
+        with Fail[TimeoutError] = |_e| () {
+            supervised(timeout: 15.to_seconds()) {
+                spawn {
+                    consume lst = match TcpListener.bind(SocketAddr.loopback(0)) {
+                        Ok(consume l) => l
+                        Err(_) => {
+                            ro _ = done_tx.try_send(false)
+                            return
+                        }
+                    }
+                    serve(lst, echo_handler, ServerPolicy.new(), stop: Some(tok))
+                    // Reached ONLY if the accept loop was actually interrupted.
+                    ro _ = done_tx.try_send(true)
+                }
+                detach {
+                    300.to_millis().sleep()
+                    tok.cancel("smoke: shutdown requested")
+                }
+            }
+        };
+        ro got = done_rx.recv()
+        assert(got == Some(true))
+    }
+}

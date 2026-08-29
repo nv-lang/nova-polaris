@@ -536,14 +536,36 @@ export fn serve_connection(consume stream TcpStream, handler fn([]u8) -> ServerR
 // DIFFERENT trigger: CancelToken-reachability alone, no post-loop read
 // needed) IS confirmed FIXED on the current compiler — verified in
 // isolation, with and without a `supervised(cancel:)` wrapper, no drain
-// code. `stop`/`graceful_drain` are NOT added anywhere in this package as
-// of this commit — `serve()` has no shutdown knob, same as before this
-// window; the field/param additions were fully reverted once defect 3
-// closed off every combination tried.
-#stable(since = "0.1")
-export fn serve(consume listener TcpListener, handler fn([]u8) -> ServerResponse, policy ServerPolicy) Net Time Detach {
-    mut inflight = Semaphore.new(policy.max_inflight())
-    mut reject_log = RejectLog.new()
+// code.
+//
+// RESOLVED 2026-08-29: all four numbered defects above were re-measured
+// with the reproducers from this very banner, and NONE reproduces on the
+// current compiler. The knob was then added in the shape defect 2 had
+// ruled out — `stop Option[CancelToken] = None`, keyword-only per D102 —
+// so `#stable` holds and every existing call site compiles untouched.
+// One NEW defect was found while doing it (registry #790): reading a
+// detach-boxed mut local after a `supervised(cancel:)` block whose park
+// was a real uv `accept()` dies with an access violation in the fiber
+// arena (a TIMER park in the same shape is fine, which is why every probe
+// with `sleep()` passed). Worked around structurally: the accept loop
+// lives in `serve_accept_loop`, so `serve()`'s own body has no detach
+// capture and the drain's post-loop read is a plain local read. Proven by
+// `rt/serve_graceful_shutdown_smoke.nv` (live socket, cancel at 300ms,
+// asserts serve() RETURNED) and the full src/net+src/rt run: PASS 11
+// FAIL 0.
+// The accept loop lives in its OWN function, and that is load-bearing, not
+// style: `inflight` is captured by the per-connection `detach` bodies, so the
+// codegen boxes it. Reading that boxed local AFTER a `supervised(cancel:)`
+// block whose park was a real uv `accept()` crashes with an access violation
+// in the fiber arena (registry #790, std-only repro; a TIMER park in the same
+// shape is fine, which is why probes with `sleep()` never caught it). With
+// the loop split out, `serve()`'s own body has no detach capture, and the
+// drain's `available_permits()` read below is a plain local read -- the same
+// workaround this file's banner recorded for the original defect 1: a
+// Semaphore is an opaque reference-counted handle, so the same object is
+// mutated either side of the call.
+fn serve_accept_loop(consume listener TcpListener, handler fn([]u8) -> ServerResponse, policy ServerPolicy, cancel_tok CancelToken, mut inflight Semaphore, mut reject_log RejectLog) Net Time Detach {
+    supervised(cancel: cancel_tok) {
     mut running = true
     while running {
         match listener.accept() {
@@ -575,18 +597,69 @@ export fn serve(consume listener TcpListener, handler fn([]u8) -> ServerResponse
                     }
                 }
             }
-            Err(_) => {
-                // Deliverable 1: transient accept error — back off briefly,
-                // KEEP LOOPING (do not exit). Mirrors the fixed-interval
-                // retry shape already proven in this codebase's own
-                // reconnect/backoff call sites; no unbounded busy-loop.
-                20.to_millis().sleep()
+            Err(e) => {
+                // Cancellation is not a transient error: it is the shutdown
+                // signal arriving through `accept()`, which its own doc-comment
+                // calls "parks; cancel-safe". Anything else is transient —
+                // back off briefly and KEEP LOOPING (do not exit), the shape
+                // already proven by this codebase's reconnect/backoff sites;
+                // no unbounded busy-loop.
+                match e {
+                    NetError.Cancelled => {
+                        running = false
+                    }
+                    _ => {
+                        20.to_millis().sleep()
+                    }
+                }
             }
         }
     }
-    // #672 form (1): the accept loop was handed the listener by `consume`, so
-    // the accept loop closes it. Same omission as `serve_connection` above and
-    // the same reason it stayed invisible -- a consume parameter gets no
-    // auto-`@cleanup` from the codegen.
+    }
+    // #672 form (1): the accept loop was handed the listener by `consume`,
+    // so the accept loop closes it (a consume parameter gets no
+    // auto-`@cleanup` from the codegen).
     listener.close()
+}
+
+#stable(since = "0.1")
+export fn serve(consume listener TcpListener, handler fn([]u8) -> ServerResponse, policy ServerPolicy, stop Option[CancelToken] = None) Net Time Detach {
+    mut inflight = Semaphore.new(policy.max_inflight())
+    mut reject_log = RejectLog.new()
+    // A caller that passed no token still gets the same code path: a fresh
+    // token nobody holds simply never fires, so `serve()` loops forever as
+    // it always did. One shape, not two.
+    ro cancel_tok = match stop {
+        Some(tok) => tok
+        None => CancelToken.new()
+    }
+    // Explicit re-binding: with a defaulted parameter in the signature the
+    // checker loses track of consumption THROUGH the helper call and reports
+    // D133 'consumed on part of paths'; a bare consume-binding makes the
+    // transfer visible on every path.
+    consume lst = listener
+    serve_accept_loop(lst, handler, policy, cancel_tok, inflight, reject_log)
+
+    // Bounded drain. Every accepted connection holds one admission permit
+    // for its whole life, so "all permits back" IS "no connection in
+    // flight" — no second counter is needed, and none is kept.
+    //
+    // The wait is BOUNDED on purpose: an unbounded drain turns one stuck
+    // keep-alive connection into a server that never exits, which is the
+    // failure mode graceful shutdown exists to avoid.
+    ro drain_budget = policy.graceful_drain()
+    mut waited = 0.to_millis()
+    mut draining = drain_budget.nanos() > 0
+    while draining {
+        if inflight.available_permits() >= policy.max_inflight() {
+            draining = false
+        } else {
+            if waited.nanos() >= drain_budget.nanos() {
+                draining = false
+            } else {
+                20.to_millis().sleep()
+                waited = (waited.nanos() + 20_000_000).to_nanos()
+            }
+        }
+    }
 }
