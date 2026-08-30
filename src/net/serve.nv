@@ -547,16 +547,21 @@ export fn serve_connection(consume stream TcpStream, handler fn([]u8) -> ServerR
 // detach-boxed mut local after a `supervised(cancel:)` block whose park
 // was a real uv `accept()` dies with an access violation in the fiber
 // arena (a TIMER park in the same shape is fine, which is why every probe
-// with `sleep()` passed). Worked around structurally: the accept loop
-// lives in `serve_accept_loop`, so `serve()`'s own body has no detach
-// capture and the drain's post-loop read is a plain local read. Proven by
+// with `sleep()` passed). It was worked around structurally for a few
+// hours -- the accept loop was moved into its own `serve_accept_loop`, so
+// `serve()`'s own body held no detach capture. Proven then by
 // `rt/serve_graceful_shutdown_smoke.nv` (live socket, cancel at 300ms,
 // asserts serve() RETURNED) and the full src/net+src/rt run: PASS 11
 // FAIL 0.
-// UNDONE 2026-08-29 later the same day: #790 is fixed in the compiler
-// (nova 3cf9d6aa0 -- the lazy detach box is NULL-guarded at post-site
-// reads), so the structural split is gone and the loop is inline again;
-// the smokes prove the drain's post-loop read on the merged shape.
+//
+// THE WORKAROUND IS GONE, 2026-08-29 the same day: #790 is fixed in the
+// compiler (nova 3cf9d6aa0, on main as 8d01c8370 -- the lazily allocated
+// detach box is NULL-guarded at reads emitted after the detach site, where
+// it could still be NULL because the site may never run). The loop is
+// inline in `serve()` again and `serve_accept_loop` no longer exists; the
+// drain's post-loop `available_permits()` is once more a boxed read after
+// a uv-cancelled block, which is exactly the shape that used to crash.
+// Both smokes PASS on this merged shape.
 
 #stable(since = "0.1")
 export fn serve(consume listener TcpListener, handler fn([]u8) -> ServerResponse, policy ServerPolicy, stop Option[CancelToken] = None) Net Time Detach {
