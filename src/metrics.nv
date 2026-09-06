@@ -120,14 +120,10 @@ export fn MetricsRegistry @render_prometheus() -> str {
     consume g = @mutex.lock()
     consume sb = StringBuilder.new()
     for (name, n) in @counters.iter() {
-        sb.append("# TYPE ${name} counter
-${name} ${n}
-")
+        sb.append("# TYPE ${name} counter\n${name} ${n}\n")
     }
     for (name, v) in @gauges.iter() {
-        sb.append("# TYPE ${name} gauge
-${name} ${v}
-")
+        sb.append("# TYPE ${name} gauge\n${name} ${v}\n")
     }
     ro out = sb.into_str()
     out
