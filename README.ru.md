@@ -10,10 +10,8 @@ auth (Bearer/Basic/JWT/сессии), WebSocket и graceful accept-loop серв
 
 ```nova
 import polaris.{Router, ServerRequest, ServerResponse}
-import polaris.net.{ServerPolicy}
-import polaris.serve.{serve_router}
+import polaris.serve.{serve}
 import polaris.{StatusCode}
-import std.net.{TcpListener, SocketAddr}
 
 fn main() Net Time Detach -> () {
     mut app = Router.new()
@@ -22,8 +20,7 @@ fn main() Net Time Detach -> () {
         ServerResponse.text(StatusCode.OK, "hello, ${name}")
     })!!
 
-    consume listener = TcpListener.bind("0.0.0.0:8080".to_socket_addr()!!)!!
-    serve_router(listener, app, ServerPolicy.new())
+    serve(app, ":8080")!!
 }
 ```
 
