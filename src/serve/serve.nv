@@ -25,7 +25,7 @@ module polaris.serve
 
 import std.net.{TcpListener, TcpStream, NetError}
 import polaris.{Router, router_callback, router_callback_with_limits}
-import polaris.net.{handle_connection, serve, ServerPolicy}
+import polaris.net.{handle_connection, serve as net_serve, ServerPolicy}
 
 /// `http.servernet.handle_connection`, but taking a `Router` directly (thin
 /// sugar over `router_callback`) — single-shot `Connection: close`, one
@@ -49,7 +49,7 @@ export fn handle_connection_router(consume stream TcpStream, router Router) Net 
 /// the call RETURNS. Omitted, the loop runs forever as before.
 #stable(since = "0.1")
 export fn serve_router(consume listener TcpListener, router Router, policy ServerPolicy, stop Option[CancelToken] = None) Net Time Detach {
-    serve(listener, router_callback_with_limits(router, policy.multipart_limits()), policy, stop: stop)
+    net_serve(listener, router_callback_with_limits(router, policy.multipart_limits()), policy, stop: stop)
 }
 
 /// `serve_router`, but taking the listen address as a string instead of an
