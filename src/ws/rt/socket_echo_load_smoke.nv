@@ -110,7 +110,7 @@ fn run_echo_pair(done_tx ChanWriter[bool]) Net -> () {
                             ro resp_head = "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept_key}\r\n\r\n"
                             match s.write_all(resp_head.bytes()) {
                                 Ok(_) => {
-                                    mut ws = WebSocket.with_limit(s, 65536)
+                                    consume ws = WebSocket.with_limit(s, 65536)
                                     mut running = true
                                     mut echoed = 0
                                     while running {
