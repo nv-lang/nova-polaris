@@ -90,7 +90,7 @@ fn RejectLog.new() -> RejectLog => { count: AtomicInt.new(0), window_start_ms: A
 // stale window and only one wins the CAS, same ±1 tolerance
 // `middleware/ratelimit.nv`'s own token bucket documents for its unlocked
 // table) flushes a summary line and starts a fresh window.
-fn RejectLog @record() Time {
+fn RejectLog mut @record() Time {
     ro now_ns = Monotonic.now().nanos() as int
     ro n = @count.fetch_add(1) + 1
     if n == 1 {

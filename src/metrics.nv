@@ -99,7 +99,7 @@ export fn MetricsRegistry @gauge_value(name str) -> f64 {
 
 /// Add `delta` to counter `name` (created at 0 on first use).
 #stable(since = "0.1")
-export fn MetricsRegistry @record_counter(name str, delta int) {
+export fn MetricsRegistry mut @record_counter(name str, delta int) {
     consume g = @mutex.lock()
     ro prev = @counters.get(name) ?? 0
     ro _ = @counters.insert(name, prev + delta)
@@ -107,7 +107,7 @@ export fn MetricsRegistry @record_counter(name str, delta int) {
 
 /// Overwrite gauge `name` (last-write-wins).
 #stable(since = "0.1")
-export fn MetricsRegistry @record_gauge(name str, v f64) {
+export fn MetricsRegistry mut @record_gauge(name str, v f64) {
     consume g = @mutex.lock()
     ro _ = @gauges.insert(name, v)
 }

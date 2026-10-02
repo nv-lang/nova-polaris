@@ -6,7 +6,7 @@
 module polaris
 
 test "MetricsRegistry: counter starts at 0, record_counter accumulates" {
-    ro reg = MetricsRegistry.new()
+    mut reg = MetricsRegistry.new()
     assert(reg.counter_value("accepted_total") == 0)
     reg.record_counter("accepted_total", 1)
     reg.record_counter("accepted_total", 2)
@@ -16,7 +16,7 @@ test "MetricsRegistry: counter starts at 0, record_counter accumulates" {
 }
 
 test "MetricsRegistry: gauge is last-write-wins" {
-    ro reg = MetricsRegistry.new()
+    mut reg = MetricsRegistry.new()
     assert(reg.gauge_value("inflight") == 0.0)
     reg.record_gauge("inflight", 3.0)
     assert(reg.gauge_value("inflight") == 3.0)
@@ -25,7 +25,7 @@ test "MetricsRegistry: gauge is last-write-wins" {
 }
 
 test "MetricsRegistry: render_prometheus emits a TYPE line and the value per metric" {
-    ro reg = MetricsRegistry.new()
+    mut reg = MetricsRegistry.new()
     reg.record_counter("accepted_total", 5)
     reg.record_gauge("inflight", 2.0)
     ro text = reg.render_prometheus()
@@ -36,7 +36,7 @@ test "MetricsRegistry: render_prometheus emits a TYPE line and the value per met
 }
 
 test "metrics_routes: GET /metrics renders the registry as Prometheus text" {
-    ro reg = MetricsRegistry.new()
+    mut reg = MetricsRegistry.new()
     reg.record_counter("rejected_total", 7)
     mut r = Router.new()
     r = metrics_routes(r, reg)!!
