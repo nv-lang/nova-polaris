@@ -75,7 +75,7 @@ test "smoke: TLS loopback client -> handle_connection_tls -> decrypted HTTP resp
             spawn {
                 ro port = match rx.recv() { Some(p) => p, None => 0 as u16 }
                 assert(port > 0)
-                consume conn = TcpStream.connect(SocketAddr.loopback(port))!!
+                consume conn = TcpStream.connect(SocketAddr.loopback(port as int))!!
                 ro ccfg = ClientConfig.new("localhost")
                     .verification(VerificationMode.CustomRoots(fixture_cert()))
                 consume tls_stream = must_tls(TlsStream.connect(conn, ccfg))

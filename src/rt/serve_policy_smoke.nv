@@ -59,7 +59,7 @@ test "serve_router(): keep-alive — two requests over one connection, honest cl
                 }
                 spawn {
                     ro port = match port_rx.recv() { Some(p) => p, None => 0 as u16 }
-                    match TcpStream.connect(SocketAddr.loopback(port)) {
+                    match TcpStream.connect(SocketAddr.loopback(port as int)) {
                         Ok(consume conn) => {
                             consume cli = conn
                             ro _ = cli.write("GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n")
@@ -111,7 +111,7 @@ test "serve_router(): declared Content-Length over the configured cap -> 413" {
                 }
                 spawn {
                     ro port = match port_rx.recv() { Some(p) => p, None => 0 as u16 }
-                    match TcpStream.connect(SocketAddr.loopback(port)) {
+                    match TcpStream.connect(SocketAddr.loopback(port as int)) {
                         Ok(consume conn) => {
                             consume cli = conn
                             // Declared length (100) exceeds the 8-byte cap — the
@@ -154,7 +154,7 @@ test "serve_router(): chunked request body decodes and reaches the handler" {
                 }
                 spawn {
                     ro port = match port_rx.recv() { Some(p) => p, None => 0 as u16 }
-                    match TcpStream.connect(SocketAddr.loopback(port)) {
+                    match TcpStream.connect(SocketAddr.loopback(port as int)) {
                         Ok(consume conn) => {
                             consume cli = conn
                             ro _ = cli.write("POST /echo HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n")
@@ -215,7 +215,7 @@ test "serve_router(): over max_inflight -> 503, first connection still served" {
                 // enough for B to observe the reject, then disconnect.
                 spawn {
                     ro port = match port_rx.recv() { Some(p) => p, None => 0 as u16 }
-                    match TcpStream.connect(SocketAddr.loopback(port)) {
+                    match TcpStream.connect(SocketAddr.loopback(port as int)) {
                         Ok(consume conn) => {
                             consume cli = conn
                             ro _ = a_ready_tx.try_send(true)
@@ -232,7 +232,7 @@ test "serve_router(): over max_inflight -> 503, first connection still served" {
                     if a_ready {
                         (50).to_millis().sleep()   // let A's accept()/admission-count land first
                         ro port2 = match port_rx.recv() { Some(p) => p, None => 0 as u16 }
-                        match TcpStream.connect(SocketAddr.loopback(port2)) {
+                        match TcpStream.connect(SocketAddr.loopback(port2 as int)) {
                             Ok(consume conn) => {
                                 consume cli = conn
                                 match cli.read_bytes(4096) {
@@ -286,7 +286,7 @@ test "serve_router(): first admission reject logs immediately via Log" {
                     // long enough for the second connection to be rejected.
                     spawn {
                         ro port = match port_rx.recv() { Some(p) => p, None => 0 as u16 }
-                        match TcpStream.connect(SocketAddr.loopback(port)) {
+                        match TcpStream.connect(SocketAddr.loopback(port as int)) {
                             Ok(consume conn) => {
                                 consume cli = conn
                                 (400).to_millis().sleep()
@@ -299,7 +299,7 @@ test "serve_router(): first admission reject logs immediately via Log" {
                     spawn {
                         ro port2 = match port_rx.recv() { Some(p) => p, None => 0 as u16 }
                         (100).to_millis().sleep()   // let the holder's admission land first
-                        match TcpStream.connect(SocketAddr.loopback(port2)) {
+                        match TcpStream.connect(SocketAddr.loopback(port2 as int)) {
                             Ok(consume conn) => {
                                 consume cli = conn
                                 ro _ = cli.read_bytes(4096)
