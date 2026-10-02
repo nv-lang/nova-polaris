@@ -90,7 +90,7 @@ test "ratelimit(): CONCURRENCY connections at once against ONE shared bucket tab
                 for _i in 0..CONCURRENCY {
                     spawn {
                         ro port = match port_rx.recv() { Some(p) => p, None => 0 as u16 }
-                        match TcpStream.connect(SocketAddr.loopback(port)) {
+                        match TcpStream.connect(SocketAddr.loopback(port as int)) {
                             Ok(consume cli) => {
                                 ro _ = cli.write("GET /x HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
                                 match cli.read_bytes(4096) {
