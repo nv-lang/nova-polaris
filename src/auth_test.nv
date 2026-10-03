@@ -39,14 +39,14 @@ fn test_secret() -> []u8 => "test-secret-222-13".bytes()
 fn make_token(secret []u8, sub str, exp_s f64) -> str {
     mut m = JsonObject.new()
     m.insert("sub", JsonValue.Str(sub))
-    m.insert("exp", JsonValue.Num(exp_s))
+    m.insert("exp", JsonValue.num(exp_s))
     Jwt.encode_hs256(secret, JsonValue.Object(m))
 }
 
 fn make_token_nbf(secret []u8, sub str, nbf_s f64) -> str {
     mut m = JsonObject.new()
     m.insert("sub", JsonValue.Str(sub))
-    m.insert("nbf", JsonValue.Num(nbf_s))
+    m.insert("nbf", JsonValue.num(nbf_s))
     Jwt.encode_hs256(secret, JsonValue.Object(m))
 }
 
