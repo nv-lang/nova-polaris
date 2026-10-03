@@ -205,17 +205,26 @@ fn jwt_check_time(claims JsonValue, now_ms u64) -> Result[(), HttpError] {
     ro now_s = now_ms / 1000
     match claims.object() {
         Some(m) => {
+            // A NumericDate is an integer or a fraction: read it through
+            // `num()`, not one variant (nova #1638 split the JSON number into
+            // Int/U64/F64; `num()` reads all three, and the old single `Num`).
             match m.get("exp") {
-                Some(JsonValue.Num(exp_s)) => {
-                    if (now_s as f64) >= exp_s { return Err(err_401()) }
+                Some(v) => match v.num() {
+                    Some(exp_s) => {
+                        if (now_s as f64) >= exp_s { return Err(err_401()) }
+                    }
+                    None => ()
                 }
-                _ => ()
+                None => ()
             }
             match m.get("nbf") {
-                Some(JsonValue.Num(nbf_s)) => {
-                    if (now_s as f64) < nbf_s { return Err(err_401()) }
+                Some(v) => match v.num() {
+                    Some(nbf_s) => {
+                        if (now_s as f64) < nbf_s { return Err(err_401()) }
+                    }
+                    None => ()
                 }
-                _ => ()
+                None => ()
             }
             Ok(())
         }
